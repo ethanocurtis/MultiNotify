@@ -57,6 +57,7 @@ DEBUG=false
 - `ALLOWED_FLAIR`: Comma-separated flairs. Leave blank for all posts.
 - `DISCORD_WEBHOOK_URL`: Create one in Discord (Server Settings â†’ Integrations â†’ Webhooks).
 - `DEBUG`: Set to `true` to send the last 10 posts immediately (ignoring duplicates), then exit (for testing).
+- `POST_LIMIT`: The number of most recent posts to fetch each cycle (and on startup). Defaults to 10.
 
 ---
 
