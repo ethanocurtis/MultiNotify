@@ -68,8 +68,6 @@ cp .env.example .env
 ```
 Then edit with your keys.
 
-The example file is currently not available at this time you can create you own as stated above.
-
 ---
 
 ### 5. Run the bot with Docker
