@@ -13,5 +13,5 @@ Monitor a subreddit for new posts with a specific flair and send them to a Disco
 ### 1. Clone this repo
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/reddit-discord-notifier.git
+git clone https://github.com/ethanocurtis/reddit-discord-notifier.git
 cd reddit-discord-notifier
