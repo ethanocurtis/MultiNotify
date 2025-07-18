@@ -1,17 +1,18 @@
 # Reddit to Discord Notifier
 
-Monitor a subreddit for new posts with a specific flair and automatically send them to a Discord channel via webhook.
+Monitor a subreddit for new posts (optionally filtered by flair) and automatically send them to a Discord channel via webhook.
 
-## ✅ Features
+## Features
 
 - Monitor any subreddit
-- Filter by specific flair (e.g. "Product Announcement")
-- Send matching posts to Discord using a webhook
-- Simple setup with Docker
+- Filter by one or multiple flairs (comma-separated)
+- Option to post all new posts (no flair filter)
+- Sends to Discord using a webhook
+- Runs easily via Docker (Linux, Raspberry Pi, or Windows)
 
 ---
 
-## 🚀 How to Use
+## How to Use (Linux / Raspberry Pi)
 
 ### 1. Clone this repository
 
@@ -22,74 +23,72 @@ cd discord-reddit-bot
 
 ---
 
-### 2. Create a Reddit App (to get API keys)
+### 2. Create a Reddit App (for API keys)
 
-1. Log in to [https://www.reddit.com/prefs/apps](https://www.reddit.com/prefs/apps)
-2. Scroll to **"Developed Applications"** and click **"create app"**.
+1. Log in to https://www.reddit.com/prefs/apps
+2. Scroll to "Developed Applications" and click "create app".
 3. Fill in:
-   - **Name**: `discord-notifier`
-   - **App type**: `script`
-   - **Redirect URI**: `http://localhost`
+   - Name: `discord-notifier`
+   - App type: `script`
+   - Redirect URI: `http://localhost`
 4. After creating, copy your:
-   - `client_id` (under the app name)
-   - `client_secret` (next to "secret")
+   - client_id (under the app name)
+   - client_secret (next to "secret")
 
 ---
 
 ### 3. Set up your `.env` file
 
-Create a `.env` file in the project folder with these contents:
+Create a `.env` file in the project folder with:
 
 ```env
 REDDIT_CLIENT_ID=your_client_id_here
 REDDIT_CLIENT_SECRET=your_client_secret_here
-REDDIT_USER_AGENT=discord-notifier-bot
-SUBREDDIT=
-ALLOWED_FLAIR=
+REDDIT_USER_AGENT=discord-notifier-bot by u/yourusername
+SUBREDDIT=selfhosted
+ALLOWED_FLAIR=Release,Product Announcement
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/your_webhook_here
 CHECK_INTERVAL=300
 POST_LIMIT=10
+DEBUG=false
 ```
 
-- `SUBREDDIT`: The subreddit to monitor (without `r/`).
-- `ALLOWED_FLAIR`: Only posts with this flair will be sent. Leave blank to send **all new posts**.
-- `DISCORD_WEBHOOK_URL`: Create a webhook in your Discord server (Server Settings → Integrations → Webhooks).
+- `SUBREDDIT`: The subreddit (no `r/`).
+- `ALLOWED_FLAIR`: Comma-separated flairs. Leave blank for all posts.
+- `DISCORD_WEBHOOK_URL`: Create one in Discord (Server Settings â†’ Integrations â†’ Webhooks).
+- `DEBUG`: Set to `true` to send the last 10 posts immediately (ignoring duplicates), then exit (for testing).
 
 ---
 
 ### 4. Use `.env.example` for easy setup
 
-This repository includes an example file (`.env.example`).  
-Copy it and rename it to `.env` to get started:
-
+The repo includes a `.env.example`. Copy it and rename:
 ```bash
 cp .env.example .env
 ```
-
-Then edit it with your own values.
+Then edit with your keys.
 
 ---
 
 ### 5. Run the bot with Docker
 
-Build and start the container:
+Build and start:
 ```bash
 docker compose up -d --build
 ```
 
-Check logs to confirm it’s running:
+Watch logs:
 ```bash
 docker compose logs -f
 ```
 
-The bot will now check the subreddit every 5 minutes (or whatever `CHECK_INTERVAL` is set to) and post matching new posts to Discord.
+The bot will post the latest 10 matching posts at startup, then check every `CHECK_INTERVAL` (default 5 minutes) for new ones.
 
 ---
 
-### 6. Running multiple bots (optional)
+### 6. Running Multiple Bots (Optional)
 
-Want to monitor **different subreddits or multiple flairs**?  
-You can duplicate the service in `docker-compose.yml` like this:
+Want to monitor different subreddits or flairs? Duplicate the service in `docker-compose.yml`:
 
 ```yaml
 version: "3.8"
@@ -108,18 +107,37 @@ services:
     restart: unless-stopped
 ```
 
-Each one can have its own `.env` file for separate subreddits/flairs.
+Each instance can use a different `.env`.
 
 ---
 
-## 📄 Notes
+## Using on Windows (Experimental)
 
-- The `.env` file is ignored by Git (for security) — don’t commit your secrets.
-- You can run this on any server or Raspberry Pi using Docker.
-- Supports any subreddit and any flair.
+While designed for Linux/Pi, you can run this on Windows if you:
+1. Install Docker Desktop (https://www.docker.com/products/docker-desktop/).
+2. Clone the repository (use GitHub Desktop or `git clone`).
+3. Create the `.env` as above.
+4. Open PowerShell or Command Prompt in the project folder and run:
+   ```powershell
+   docker compose up -d --build
+   ```
+Logs can be viewed with:
+```powershell
+docker compose logs -f
+```
+
+Note: Windows testing is limited. Most users should run on a server or Raspberry Pi for reliability.
 
 ---
 
-## 📜 License
+## Notes
+
+- `.env` is ignored by Git (your secrets will not be uploaded).
+- Supports any subreddit and any flair (or all posts).
+- Debug mode is helpful for testing.
+
+---
+
+## License
 
 MIT
