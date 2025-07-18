@@ -45,8 +45,8 @@ Create a `.env` file in the project folder with:
 REDDIT_CLIENT_ID=your_client_id_here
 REDDIT_CLIENT_SECRET=your_client_secret_here
 REDDIT_USER_AGENT=discord-notifier-bot by u/yourusername
-SUBREDDIT=selfhosted
-ALLOWED_FLAIR=Release,Product Announcement
+SUBREDDIT=subreddit
+ALLOWED_FLAIR=desired,flair(s),here
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/your_webhook_here
 CHECK_INTERVAL=300
 POST_LIMIT=10
@@ -132,8 +132,7 @@ Note: Windows testing is limited. Most users should run on a server or Raspberry
 
 ## Notes
 
-- `.env` is ignored by Git (your secrets will not be uploaded).
-- Supports any subreddit and any flair (or all posts).
+- Supports any subreddit and any flair (or all posts)
 - Debug mode is helpful for testing.
 
 ---
