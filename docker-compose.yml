@@ -1,0 +1,8 @@
+version: "3.8"
+
+services:
+  reddit-notifier:
+    build: .
+    env_file:
+      - .env
+    restart: unless-stopped
