@@ -133,7 +133,7 @@ Note: Windows testing is limited. Most users should run on a server or Raspberry
 ## Notes
 
 - Supports any subreddit and any flair (or all posts)
-- Debug mode is helpful for testing.
+- Debug mode is helpful for testing. however when ran in docker currently continues to post 10 most recent, and does not exit. Currently revising debug feature.
 
 ---
 
