@@ -66,7 +66,7 @@ The repo includes a `.env.example`. Copy it and rename:
 ```bash
 cp .env.example .env
 ```
-Then edit with your keys.
+Then edit with to fit your needs.
 
 ---
 
