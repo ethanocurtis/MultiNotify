@@ -104,7 +104,6 @@ services:
 ```
 
 ## Notes
-- `.env` is ignored by Git (your secrets won’t be uploaded).
 - Works with Discord, Mattermost, Slack (webhooks).
 - Debug mode (`DEBUG=true`) sends the last 10 posts immediately, then exits.
 
