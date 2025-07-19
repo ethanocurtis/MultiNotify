@@ -101,6 +101,24 @@ ADMIN_USER_IDS=123456789012345678
 6. Get Discord user IDs (right-click user → "Copy User ID") and add them to `DISCORD_USER_IDS`.
 
 ### 5. Run the Bot with Docker
+
+Below is a sample `docker-compose.yml` you can use to run MultiNotify quickly:
+
+```yaml
+version: "3.8"
+
+services:
+  reddit-notifier:
+    build: .
+    volumes:
+      - ./bot.py:/app/bot.py        # Sync your bot code
+      - ./.env:/app/.env            # Mount .env as a file (not a directory!)
+    env_file:
+      - .env                        # Load environment variables
+    restart: unless-stopped
+
+```
+
 ```bash
 docker compose up -d --build
 docker compose logs -f
@@ -135,6 +153,14 @@ Once the bot is running:
 2. Run `!setsubreddit <subreddit>` to choose which subreddit to monitor.
 3. Use `!setflairs` (with no arguments) to accept all posts, or specify flairs.
 4. Check everything with `!status`.
+
+## Webhook-Only Mode
+You can run MultiNotify **without a Discord bot** by setting:
+```
+ENABLE_DM=false
+DISCORD_BOT_TOKEN=
+```
+As long as you provide a valid `DISCORD_WEBHOOK_URL`, the bot will post to Discord, Slack, or other webhooks without logging in as a Discord bot.
 
 ## Notes
 - Automatically detects if your webhook is Discord, Slack, or another service:
