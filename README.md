@@ -46,7 +46,7 @@ Create a `.env` file in the project folder with:
 ```env
 REDDIT_CLIENT_ID=your_client_id_here
 REDDIT_CLIENT_SECRET=your_client_secret_here
-REDDIT_USER_AGENT=discord-notifier-bot by u/yourusername
+REDDIT_USER_AGENT=multinotify-bot
 SUBREDDIT=asubreddit
 ALLOWED_FLAIR=flairs,go,here
 DISCORD_WEBHOOK_URL=
