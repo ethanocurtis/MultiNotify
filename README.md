@@ -19,6 +19,7 @@ Monitor a subreddit for new posts (optionally filtered by flair) and automatical
 - Filter by one or multiple flairs (comma-separated)
 - Send posts to Discord via webhook (Discord embeds or plain text for other platforms)
 - Optional DM notifications to one or more Discord users
+- Can run in **DM-only mode** by leaving `DISCORD_WEBHOOK_URL` blank
 - Simple setup with Docker
 
 ## How to Use
@@ -46,11 +47,11 @@ REDDIT_CLIENT_SECRET=your_client_secret_here
 REDDIT_USER_AGENT=discord-notifier-bot by u/yourusername
 SUBREDDIT=selfhosted
 ALLOWED_FLAIR=Release,Product Announcement
-DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/your_webhook_here
+DISCORD_WEBHOOK_URL=
 CHECK_INTERVAL=300
 POST_LIMIT=10
 DEBUG=false
-ENABLE_DM=false
+ENABLE_DM=true
 DISCORD_BOT_TOKEN=your_discord_bot_token_here
 DISCORD_USER_IDS=123456789012345678,987654321098765432
 ```
@@ -60,7 +61,7 @@ Descriptions of each variable:
 - `REDDIT_USER_AGENT`: A descriptive name for the bot, required by Reddit.
 - `SUBREDDIT`: The subreddit to monitor (no `r/`).
 - `ALLOWED_FLAIR`: Comma-separated list of flairs to filter. Leave blank to send all posts.
-- `DISCORD_WEBHOOK_URL`: The webhook where posts will be sent (Discord, Mattermost, Slack, etc.).
+- `DISCORD_WEBHOOK_URL`: The webhook where posts will be sent. Leave blank for **DM-only mode**.
 - `CHECK_INTERVAL`: How often (in seconds) to check for new Reddit posts.
 - `POST_LIMIT`: Number of recent posts to fetch each cycle (and at startup).
 - `DEBUG`: Set to `true` to send the last 10 posts once, then exit (for testing).
@@ -84,7 +85,8 @@ Descriptions of each variable:
 docker compose up -d --build
 docker compose logs -f
 ```
-The bot will post the latest 10 posts at startup, then check every `CHECK_INTERVAL` seconds.
+The bot will post the latest 10 posts at startup, then check every `CHECK_INTERVAL` seconds.  
+If `DISCORD_WEBHOOK_URL` is blank, it will **only send DMs**.
 
 ### 6. Running Multiple Bots
 For different subreddits/flairs, duplicate the service in `docker-compose.yml`:
@@ -104,8 +106,10 @@ services:
 ```
 
 ## Notes
+- `.env` is ignored by Git (your secrets won’t be uploaded).
 - Works with Discord, Mattermost, Slack (webhooks).
 - Debug mode (`DEBUG=true`) sends the last 10 posts immediately, then exits.
+- Can run as **DM-only** by leaving `DISCORD_WEBHOOK_URL` blank.
 
 ## License
 MIT
