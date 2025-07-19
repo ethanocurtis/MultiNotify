@@ -137,11 +137,17 @@ version: "3.8"
 services:
   reddit-notifier-1:
     build: .
+    volumes:
+      - ./bot.py:/app/bot.py
+      - ./.env:/app/.env
     env_file:
       - .env
     restart: unless-stopped
   reddit-notifier-2:
     build: .
+    volumes:
+      - ./bot.py:/app/bot.py
+      - ./.env.another:/app/.env
     env_file:
       - .env.another
     restart: unless-stopped
