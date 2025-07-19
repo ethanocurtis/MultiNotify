@@ -42,7 +42,12 @@ cd MultiNotify
 4. Copy your `client_id` (under the app name) and `client_secret` (next to "secret").
 
 ### 3. Set Up Your .env File
-Create a `.env` file in the project folder with:
+An **example environment file** (`.env.example`) is included in the repository to help you get started.  
+Copy it and edit the values:
+```bash
+cp .env.example .env
+```
+Then edit `.env` with your own credentials:
 ```env
 REDDIT_CLIENT_ID=your_client_id_here
 REDDIT_CLIENT_SECRET=your_client_secret_here
@@ -109,6 +114,7 @@ services:
 
 ## Notes
 - Works with Discord, Mattermost, Slack (webhooks).
+- An **example `.env.example`** is included so you can quickly copy and customize your environment variables.
 - Debug mode (`DEBUG=true`) sends the last 10 posts immediately, then exits.
 - Can run as **DM-only** by leaving `DISCORD_WEBHOOK_URL` blank.
 
