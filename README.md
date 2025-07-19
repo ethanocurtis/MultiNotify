@@ -29,7 +29,7 @@ Monitor a subreddit for new posts (optionally filtered by flair) and automatical
 ### 1. Clone the Repository
 ```bash
 git clone https://github.com/ethanocurtis/MultiNotify.git
-cd discord-reddit-bot
+cd MultiNotify
 ```
 
 ### 2. Create a Reddit App
