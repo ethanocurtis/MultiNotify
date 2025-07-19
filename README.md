@@ -45,8 +45,8 @@ Create a `.env` file in the project folder with:
 REDDIT_CLIENT_ID=your_client_id_here
 REDDIT_CLIENT_SECRET=your_client_secret_here
 REDDIT_USER_AGENT=discord-notifier-bot by u/yourusername
-SUBREDDIT=selfhosted
-ALLOWED_FLAIR=Release,Product Announcement
+SUBREDDIT=asubreddit
+ALLOWED_FLAIR=flairs,go,here
 DISCORD_WEBHOOK_URL=
 CHECK_INTERVAL=300
 POST_LIMIT=10
