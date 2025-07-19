@@ -11,7 +11,7 @@ REDDIT_CLIENT_SECRET = os.environ.get("REDDIT_CLIENT_SECRET")
 REDDIT_USER_AGENT = os.environ.get("REDDIT_USER_AGENT", "reddit-discord-bot")
 SUBREDDIT = os.environ.get("SUBREDDIT", "selfhosted")
 ALLOWED_FLAIRS = [f.strip() for f in os.environ.get("ALLOWED_FLAIR", "").split(",") if f.strip()]
-WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
+WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
 CHECK_INTERVAL = int(os.environ.get("CHECK_INTERVAL", 300))
 POST_LIMIT = int(os.environ.get("POST_LIMIT", 10))
 DEBUG_MODE = os.environ.get("DEBUG", "false").lower() == "true"
@@ -50,26 +50,29 @@ async def send_post_notification(post):
     post_url = f"https://www.reddit.com{post.permalink}"
     flair_text = post.link_flair_text or "None"
 
-    # Prepare webhook data
-    if "discord.com" in WEBHOOK_URL:
-        data = {
-            "embeds": [{
-                "title": post.title,
-                "url": post_url,
-                "description": f"**Flair:** {flair_text}\n\n{post.selftext[:500]}...",
-                "footer": {"text": f"Posted by u/{post.author}"},
-            }]
-        }
-    else:
-        text_msg = f"New post on r/{SUBREDDIT}:\n{post.title} ({post_url})\nFlair: {flair_text}\nPosted by u/{post.author}"
-        data = {"text": text_msg}
+    # Send to Webhook if URL provided
+    if WEBHOOK_URL:
+        if "discord.com" in WEBHOOK_URL:
+            data = {
+                "embeds": [{
+                    "title": post.title,
+                    "url": post_url,
+                    "description": f"**Flair:** {flair_text}\n\n{post.selftext[:500]}...",
+                    "footer": {"text": f"Posted by u/{post.author}"},
+                }]
+            }
+        else:
+            text_msg = f"New post on r/{SUBREDDIT}:\n{post.title} ({post_url})\nFlair: {flair_text}\nPosted by u/{post.author}"
+            data = {"text": text_msg}
 
-    # Send webhook
-    response = requests.post(WEBHOOK_URL, json=data)
-    if response.status_code not in (200, 204):
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Webhook error: {response.status_code} {response.text}")
-    else:
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Sent to webhook: {post.title}")
+        try:
+            response = requests.post(WEBHOOK_URL, json=data)
+            if response.status_code not in (200, 204):
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Webhook error: {response.status_code} {response.text}")
+            else:
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Sent to webhook: {post.title}")
+        except Exception as e:
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Failed to send to webhook: {e}")
 
     # Send DMs if enabled
     if ENABLE_DM and discord_client:
