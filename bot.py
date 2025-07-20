@@ -40,7 +40,7 @@ intents.messages = True
 intents.guilds = True
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
-bot.remove_command("help")  # Disable default help so our custom one works
+bot.remove_command("help")  # Disable default help
 
 # --- Embed Helper ---
 def make_embed(title, description=None, fields=None, color=0x3498db):
@@ -211,6 +211,18 @@ async def setpostlimit(ctx, number: int = None):
 
 @bot.command()
 @is_admin()
+async def setwebhook(ctx, url: str = None):
+    global WEBHOOK_URL
+    if url is None:
+        current = WEBHOOK_URL if WEBHOOK_URL else "None (DM-only mode)"
+        await ctx.send(embed=make_embed("Current Webhook URL", f"`{current}`\nUsage: `!setwebhook <url>`"))
+        return
+    WEBHOOK_URL = url
+    update_env_var("DISCORD_WEBHOOK_URL", url)
+    await ctx.send(embed=make_embed("Setting Updated", f"Webhook URL set to:\n`{url}` (saved to .env)"))
+
+@bot.command()
+@is_admin()
 async def setflairs(ctx, *, flairs: str = None):
     global ALLOWED_FLAIRS
     if flairs is None:
@@ -273,6 +285,7 @@ async def status(ctx):
         ("Subreddit", SUBREDDIT, True),
         ("Check Interval", f"{CHECK_INTERVAL} seconds", True),
         ("Post Limit", f"{POST_LIMIT} posts", True),
+        ("Webhook URL", WEBHOOK_URL if WEBHOOK_URL else "None (DM-only mode)", False),
         ("Allowed Flairs", current_flairs, True),
         ("DM Notifications", dm_status, True),
         ("DM Users", dm_users, True),
@@ -300,13 +313,14 @@ async def help(ctx):
         ("!setsubreddit [name]", "Set or show the subreddit being monitored.", False),
         ("!setinterval [seconds]", "Set or show how often Reddit is checked.", False),
         ("!setpostlimit [number]", "Set or show how many posts to fetch per check.", False),
-        ("!setflairs [flair1, flair2,...]", "Set flairs to filter, or run with no args to clear (all posts).", False),
-        ("!enabledms [true/false]", "Enable/disable DM notifications, or show current status.", False),
-        ("!adddmuser [user_id]", "Add a Discord user to the DM list, or show current list.", False),
-        ("!removedmuser [user_id]", "Remove a Discord user from the DM list, or show current list.", False),
-        ("!status", "Show current bot settings and last Reddit check time.", False),
-        ("!reloadenv", "Reload environment variables from `.env`.", False),
-        ("!whereenv", "Show the full path of the `.env` file.", False),
+        ("!setwebhook [url]", "Set or view the webhook URL (Discord, Slack, etc.).", False),
+        ("!setflairs [flair1, flair2,...]", "Filter posts by flairs, or clear filter for all posts.", False),
+        ("!enabledms [true/false]", "Enable/disable DM notifications or show status.", False),
+        ("!adddmuser [user_id]", "Add a user to the DM list, or show the list.", False),
+        ("!removedmuser [user_id]", "Remove a user from the DM list, or show the list.", False),
+        ("!status", "Show bot settings and last Reddit check time.", False),
+        ("!reloadenv", "Reload `.env` without restarting.", False),
+        ("!whereenv", "Show the path of the `.env` file.", False),
     ]
     await ctx.send(embed=make_embed("Bot Commands", "Here’s a list of available commands:", fields))
 
