@@ -51,6 +51,7 @@ Bot replies use **Discord embeds** for clean, consistent output.
 - `!help` — Show this command list in Discord.
 - `!reloadenv` — Reload `.env` without restarting.
 - `!whereenv` — Show the path to the `.env` file being used.
+- `!setwebhook` — Updates the .env file with your webhook.
 
 ## How to Use
 
