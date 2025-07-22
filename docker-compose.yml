@@ -4,8 +4,6 @@ services:
   reddit-notifier:
     build: .
     volumes:
-      - ./bot.py:/app/bot.py        # Sync your bot code
-      - ./.env:/app/.env            # Mount .env as a file (not a directory!)
-    env_file:
-      - .env                        # Load environment variables
+      - ./bot.py:/app/bot.py
+      - ./.env:/app/.env
     restart: unless-stopped

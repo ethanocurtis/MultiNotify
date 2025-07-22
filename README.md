@@ -25,6 +25,7 @@ Monitor a subreddit for new posts (optionally filtered by flair) and automatical
 - Optional DM notifications to one or more Discord users.
 - Change settings live with bot commands (no restart needed).
 - Automatically updates `.env` so settings persist.
+- **Always loads your saved `.env` at startup** (no `!reloadenv` needed).
 - Shows last Reddit check time in `!status`.
 - Includes a built-in `!help` command listing all available commands.
 - Simple out-of-the-box deployment with Docker.
@@ -49,9 +50,9 @@ Bot replies use **Discord embeds** for clean, consistent output.
 ### Info & Maintenance
 - `!status` — Show current settings (subreddit, interval, flairs, DM status, post limit, and last Reddit check time).
 - `!help` — Show this command list in Discord.
-- `!reloadenv` — Reload `.env` without restarting.
+- `!reloadenv` — Reload `.env` without restarting (useful if you edited it manually while the bot is running).
 - `!whereenv` — Show the path to the `.env` file being used.
-- `!setwebhook` — Updates the .env file with your webhook.
+- `!setwebhook` — Updates the .env file with your webhook.  
   Run with **no arguments** to display current hook.
 
 ## How to Use
@@ -104,7 +105,7 @@ ADMIN_USER_IDS=123456789012345678
 
 ### 5. Run the Bot with Docker
 
-Below is a sample `docker-compose.yml` you can use to run MultiNotify quickly:
+Below is a sample `docker-compose.yml` to run MultiNotify:
 
 ```yaml
 version: "3.8"
@@ -114,11 +115,8 @@ services:
     build: .
     volumes:
       - ./bot.py:/app/bot.py        # Sync your bot code
-      - ./.env:/app/.env            # Mount .env as a file (not a directory!)
-    env_file:
-      - .env                        # Load environment variables
+      - ./.env:/app/.env            # Mount .env so changes persist
     restart: unless-stopped
-
 ```
 
 ```bash
@@ -127,13 +125,15 @@ docker compose logs -f
 ```
 
 The bot will:
+- Always load your saved `.env` at startup.
 - Post the last 10 posts at startup.
 - Check Reddit every `CHECK_INTERVAL` seconds.
 - Send posts to Discord as embeds (or plain text for Slack).
 - Send DMs to specified users (if enabled).
 
 ### 6. Running Multiple Bots
-To run for multiple subreddits/flairs, duplicate the service in `docker-compose.yml`:
+To run for multiple subreddits/flairs, duplicate the service in `docker-compose.yml` (each with its own `.env`):
+
 ```yaml
 version: "3.8"
 services:
@@ -142,16 +142,13 @@ services:
     volumes:
       - ./bot.py:/app/bot.py
       - ./.env:/app/.env
-    env_file:
-      - .env
     restart: unless-stopped
+
   reddit-notifier-2:
     build: .
     volumes:
       - ./bot.py:/app/bot.py
       - ./.env.another:/app/.env
-    env_file:
-      - .env.another
     restart: unless-stopped
 ```
 
@@ -171,6 +168,7 @@ DISCORD_BOT_TOKEN=
 As long as you provide a valid `DISCORD_WEBHOOK_URL`, the bot will post to Discord, Slack, or other webhooks without logging in as a Discord bot.
 
 ## Notes
+- The bot **always loads your `.env` at startup**, no need for `!reloadenv` unless editing the file manually while it’s running.
 - Automatically detects if your webhook is Discord, Slack, or another service:
   - **Discord** gets embedded messages.
   - **Slack/others** get plain text for compatibility.

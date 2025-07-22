@@ -8,6 +8,16 @@ from datetime import datetime
 
 # --- Always use /app/.env (project folder in Docker) ---
 ENV_FILE = os.path.join("/app", ".env")
+# --- Force-load .env at startup (same behavior as !reloadenv) ---
+if os.path.exists(ENV_FILE):
+    with open(ENV_FILE, "r") as f:
+        for line in f:
+            if "=" in line:
+                key, value = line.strip().split("=", 1)
+                os.environ[key] = value
+    print(f"[DEBUG] Loaded environment from {ENV_FILE} at startup")
+else:
+    print(f"[WARN] No .env found at {ENV_FILE} on startup")
 
 # --- Load environment variables ---
 REDDIT_CLIENT_ID = os.environ.get("REDDIT_CLIENT_ID")
