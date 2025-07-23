@@ -119,7 +119,7 @@ services:
   reddit-notifier:
     build: .
     volumes:
-      - ./bot_slash_embeds_final.py:/app/bot.py
+      - ./bot.py:/app/bot.py
       - ./.env:/app/.env
     restart: unless-stopped
 ```
@@ -137,14 +137,14 @@ services:
   reddit-notifier-1:
     build: .
     volumes:
-      - ./bot_slash_embeds_final.py:/app/bot.py
+      - ./bot.py:/app/bot.py
       - ./.env:/app/.env
     restart: unless-stopped
 
   reddit-notifier-2:
     build: .
     volumes:
-      - ./bot_slash_embeds_final.py:/app/bot.py
+      - ./bot.py:/app/bot.py
       - ./.env.another:/app/.env
     restart: unless-stopped
 ```
