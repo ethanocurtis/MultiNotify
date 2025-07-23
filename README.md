@@ -1,12 +1,14 @@
+
 # MultiNotify
 
 ![Python](https://img.shields.io/badge/Python-3.8+-blue) ![Discord](https://img.shields.io/badge/Discord-Bot-brightgreen) ![Webhooks](https://img.shields.io/badge/Webhook-Supported-green) ![Mattermost](https://img.shields.io/badge/Mattermost-Compatible-orange) ![Slack](https://img.shields.io/badge/Slack-Compatible-lightgrey) ![DM Mode](https://img.shields.io/badge/DM-Mode%20Supported-purple) ![License: MIT](https://img.shields.io/badge/License-MIT-yellow)
 
-Monitor a subreddit for new posts (optionally filtered by flair) and automatically send them to Discord, Mattermost, Slack, or other services via webhook. Supports **Discord embeds, DM notifications, dynamic commands, automatic `.env` updates**, and is fully containerized for easy deployment.
+Monitor a subreddit for new posts (optionally filtered by flair) and automatically send them to Discord, Mattermost, Slack, or other services via webhook. Supports **Discord embeds, DM notifications, slash commands, automatic `.env` updates**, and is fully containerized for easy deployment.
 
 ## Table of Contents
 - [Features](#features)
-- [Commands](#commands)
+- [Slash Commands](#slash-commands)
+- [Webhook Behavior](#webhook-behavior)
 - [How to Use](#how-to-use)
   - [Clone the Repository](#1-clone-the-repository)
   - [Create a Reddit App](#2-create-a-reddit-app)
@@ -14,46 +16,54 @@ Monitor a subreddit for new posts (optionally filtered by flair) and automatical
   - [Enable Discord Bot DMs](#4-enable-discord-bot-dms)
   - [Run the Bot](#5-run-the-bot-with-docker)
   - [Multiple Bots](#6-running-multiple-bots)
-- [First Run Tips](#first-run-tips)
 - [Notes](#notes)
 - [License](#license)
 
 ## Features
 - Monitor any subreddit for new posts.
 - Filter by one or multiple flairs (or watch all posts).
-- Send posts via Discord embeds (or plain text for Slack/others).
-- Optional DM notifications to one or more Discord users.
-- Change settings live with bot commands (no restart needed).
+- Send posts via **Discord embeds** (with subreddit, flair, author) or plain text for Slack/others.
+- Optional **DM notifications** to one or more Discord users (with flair info).
+- Change settings live with **slash commands** (no restart needed).
 - Automatically updates `.env` so settings persist.
-- **Always loads your saved `.env` at startup** (no `!reloadenv` needed).
-- Shows last Reddit check time in `!status`.
-- Includes a built-in `!help` command listing all available commands.
-- Simple out-of-the-box deployment with Docker.
+- **Always loads your saved `.env` at startup** (no `/reloadenv` needed unless manually editing).
+- Supports **Discord-specific embeds** and plain text fallback for others.
 
-## Commands
+## Slash Commands
 
 All commands require the user to be listed in `ADMIN_USER_IDS` in `.env`.  
 Bot replies use **Discord embeds** for clean, consistent output.
 
 ### Configuration
-- `!setsubreddit [name]` — Set or view the subreddit being monitored.
-- `!setinterval [seconds]` — Set or view how often the bot checks Reddit.
-- `!setpostlimit [number]` — Set or view how many posts to fetch each cycle.
-- `!setflairs [flair1, flair2,...]` — Set which flairs to monitor.  
+- `/setsubreddit <name>` — Set the subreddit being monitored.
+- `/setinterval <seconds>` — Set how often the bot checks Reddit.
+- `/setpostlimit <number>` — Set how many posts to fetch each cycle.
+- `/setwebhook [url]` — Set or clear the webhook (blank clears it).  
+  Discord webhooks get full embeds; others get plain text.
+- `/setflairs [flair1, flair2,...]` — Set which flairs to monitor.  
   Run with **no arguments** to clear and watch all posts.
-- `!enabledms [true/false]` — Enable, disable, or show the current DM status.
+- `/enabledms <true/false>` — Enable or disable DM notifications.
 
 ### DM User Management
-- `!adddmuser [user_id]` — Add a user to the DM list, or show the current list.
-- `!removedmuser [user_id]` — Remove a user from the DM list, or show the current list.
+- `/adddmuser <user_id>` — Add a user to the DM list.
+- `/removedmuser <user_id>` — Remove a user from the DM list.
 
 ### Info & Maintenance
-- `!status` — Show current settings (subreddit, interval, flairs, DM status, post limit, and last Reddit check time).
-- `!help` — Show this command list in Discord.
-- `!reloadenv` — Reload `.env` without restarting (useful if you edited it manually while the bot is running).
-- `!whereenv` — Show the path to the `.env` file being used.
-- `!setwebhook` — Updates the .env file with your webhook.  
-  Run with **no arguments** to display current hook.
+- `/status` — Show current settings (subreddit, interval, flairs, post limit, DM status, DM users, and webhook).  
+  Webhook and sensitive data are shown only to you (ephemeral).
+- `/help` — Show this command list in Discord.
+- `/reloadenv` — Reload `.env` without restarting (useful if you edited it manually while the bot is running).
+- `/whereenv` — Show the path to the `.env` file being used.
+
+## Webhook Behavior
+- **Discord webhooks** use embeds with:
+  - Subreddit name
+  - Flair (or "No Flair")
+  - Post author
+  - Post title (linked)
+  - Reddit branding icon
+- **Non-Discord webhooks (Slack, Mattermost, etc.)** use plain text for compatibility.
+- **DM notifications** include flair, author, title, and a link.
 
 ## How to Use
 
@@ -70,15 +80,14 @@ cd MultiNotify
    - **Name**: `multinotify`
    - **Type**: `script`
    - **Redirect URI**: `http://localhost`
-4. Copy the `client_id` (under the app name) and `client_secret` (next to "secret").
+4. Copy the `client_id` and `client_secret`.
 
 ### 3. Set Up Your .env File
-An example `.env.example` file is included. Copy and configure it:
+Copy and edit `.env.example`:
 ```bash
 cp .env.example .env
 ```
-
-Edit `.env` to include your credentials:
+Include your credentials:
 ```env
 REDDIT_CLIENT_ID=your_client_id_here
 REDDIT_CLIENT_SECRET=your_client_secret_here
@@ -88,24 +97,20 @@ ALLOWED_FLAIR=flairs,go,here
 DISCORD_WEBHOOK_URL=
 CHECK_INTERVAL=300
 POST_LIMIT=10
-DEBUG=false
 ENABLE_DM=true
-DISCORD_BOT_TOKEN=your_discord_bot_token_here
+DISCORD_TOKEN=your_discord_bot_token_here
 DISCORD_USER_IDS=123456789012345678
 ADMIN_USER_IDS=123456789012345678
 ```
 
 ### 4. Enable Discord Bot DMs
-1. Go to [Discord Developer Portal](https://discord.com/developers/applications).
-2. Create a new application and add a bot.
-3. Copy the bot token into `DISCORD_BOT_TOKEN` in `.env`.
-4. Enable **"Direct Messages Intent"** for the bot.
-5. Invite it to your server with `Send Messages` and `Read Messages/View Channels` permissions.
-6. Get Discord user IDs (right-click user → "Copy User ID") and add them to `DISCORD_USER_IDS`.
+1. Create a bot in the [Discord Developer Portal](https://discord.com/developers/applications).
+2. Copy its token into `DISCORD_TOKEN`.
+3. Enable **"Direct Messages Intent"**.
+4. Invite it to your server with necessary permissions.
 
 ### 5. Run the Bot with Docker
-
-Below is a sample `docker-compose.yml` to run MultiNotify:
+Use `docker-compose.yml` to build and run the bot. Mount `.env` so settings persist.
 
 ```yaml
 version: "3.8"
@@ -114,8 +119,8 @@ services:
   reddit-notifier:
     build: .
     volumes:
-      - ./bot.py:/app/bot.py        # Sync your bot code
-      - ./.env:/app/.env            # Mount .env so changes persist
+      - ./bot_slash_embeds_final.py:/app/bot.py
+      - ./.env:/app/.env
     restart: unless-stopped
 ```
 
@@ -124,57 +129,30 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-The bot will:
-- Always load your saved `.env` at startup.
-- Post the last 10 posts at startup.
-- Check Reddit every `CHECK_INTERVAL` seconds.
-- Send posts to Discord as embeds (or plain text for Slack).
-- Send DMs to specified users (if enabled).
-
 ### 6. Running Multiple Bots
-To run for multiple subreddits/flairs, duplicate the service in `docker-compose.yml` (each with its own `.env`):
-
+Duplicate the service in `docker-compose.yml` (each with its own `.env`):
 ```yaml
 version: "3.8"
 services:
   reddit-notifier-1:
     build: .
     volumes:
-      - ./bot.py:/app/bot.py
+      - ./bot_slash_embeds_final.py:/app/bot.py
       - ./.env:/app/.env
     restart: unless-stopped
 
   reddit-notifier-2:
     build: .
     volumes:
-      - ./bot.py:/app/bot.py
+      - ./bot_slash_embeds_final.py:/app/bot.py
       - ./.env.another:/app/.env
     restart: unless-stopped
 ```
 
-## First Run Tips
-Once the bot is running:
-1. Use `!help` to see all available commands.
-2. Run `!setsubreddit <subreddit>` to choose which subreddit to monitor.
-3. Use `!setflairs` (with no arguments) to accept all posts, or specify flairs.
-4. Check everything with `!status`.
-
-## Webhook-Only Mode
-You can run MultiNotify **without a Discord bot** by setting:
-```
-ENABLE_DM=false
-DISCORD_BOT_TOKEN=
-```
-As long as you provide a valid `DISCORD_WEBHOOK_URL`, the bot will post to Discord, Slack, or other webhooks without logging in as a Discord bot.
-
 ## Notes
-- The bot **always loads your `.env` at startup**, no need for `!reloadenv` unless editing the file manually while it’s running.
-- Automatically detects if your webhook is Discord, Slack, or another service:
-  - **Discord** gets embedded messages.
-  - **Slack/others** get plain text for compatibility.
-- `.env` changes made with commands are saved and persist after restarts.
-- Debug mode (`DEBUG=true`) fetches 10 posts then exits (for testing).
-- Can run as **DM-only** by leaving `DISCORD_WEBHOOK_URL` blank.
+- The bot **always loads your `.env` at startup**.
+- `.env` changes made via commands persist across restarts.
+- Automatically detects Discord vs other webhooks (embeds vs plain text).
 
 ## License
 MIT
