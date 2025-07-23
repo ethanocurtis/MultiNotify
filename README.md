@@ -153,6 +153,7 @@ services:
 - The bot **always loads your `.env` at startup**.
 - `.env` changes made via commands persist across restarts.
 - Automatically detects Discord vs other webhooks (embeds vs plain text).
+- The wiki is currently out of date and will be updated ASAP.
 
 ## License
 MIT
