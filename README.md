@@ -107,7 +107,19 @@ ADMIN_USER_IDS=123456789012345678
 1. Create a bot in the [Discord Developer Portal](https://discord.com/developers/applications).
 2. Copy its token into `DISCORD_TOKEN`.
 3. Enable **"Direct Messages Intent"**.
-4. Invite it to your server with necessary permissions.
+4. Invite it to your server with necessary permissions(see below).
+
+### Required Discord Permissions
+
+When inviting the bot to your server, make sure it has the following **minimum permissions**:
+
+- **Read Messages/View Channels** – So the bot can see the channels where you run commands.
+- **Send Messages** – Allows the bot to reply to your slash commands.
+- **Embed Links** – Required to send rich embeds (for slash command responses and Discord webhooks).
+- **Use Slash Commands** – Automatically included for bots but must be enabled on your application.
+- **Read Message History** *(optional)* – Only needed if you want the bot to reference past messages (not required by default).
+
+You do **not** need to give the bot Administrator rights. These permissions are enough for all its features.
 
 ### 5. Run the Bot with Docker
 Use `docker-compose.yml` to build and run the bot. Mount `.env` so settings persist.
