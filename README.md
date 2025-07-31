@@ -3,7 +3,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.8+-blue) ![Discord](https://img.shields.io/badge/Discord-Bot-brightgreen) ![Webhooks](https://img.shields.io/badge/Webhook-Supported-green) ![Mattermost](https://img.shields.io/badge/Mattermost-Compatible-orange) ![Slack](https://img.shields.io/badge/Slack-Compatible-lightgrey) ![DM Mode](https://img.shields.io/badge/DM-Mode%20Supported-purple) ![License: MIT](https://img.shields.io/badge/License-MIT-yellow)
 
-Monitor a subreddit for new posts (optionally filtered by flair) and automatically send them to Discord, Mattermost, Slack, or other services via webhook. Supports **Discord embeds, DM notifications, slash commands, automatic `.env` updates**, and is fully containerized for easy deployment.
+Monitor a subreddit for new posts (optionally filtered by flair or keywords) and automatically send them to Discord, Mattermost, Slack, or other services via webhook. Supports **Discord embeds, DM notifications, slash commands, automatic `.env` updates**, and is fully containerized for easy deployment.
 
 ## Table of Contents
 - [Features](#features)
