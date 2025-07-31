@@ -4,6 +4,7 @@ import praw
 import requests
 import asyncio
 import discord
+import re
 from discord import app_commands
 from datetime import datetime
 
@@ -93,7 +94,7 @@ def matches_keywords(post):
     if not KEYWORDS:
         return True
     content = f"{post.title} {post.selftext}".lower()
-    return any(kw in content for kw in KEYWORDS)
+    return any(re.search(rf"\b{{re.escape(kw)}}\b", content) for kw in KEYWORDS)
 
 async def fetch_and_notify():
     global last_post_ids
