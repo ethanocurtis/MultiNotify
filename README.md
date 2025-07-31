@@ -20,14 +20,20 @@ Monitor a subreddit for new posts (optionally filtered by flair) and automatical
 - [License](#license)
 
 ## Features
+
 - Monitor any subreddit for new posts.
 - Filter by one or multiple flairs (or watch all posts).
+- **Optional keyword filtering** — only send posts containing one or more defined keywords.
 - Send posts via **Discord embeds** (with subreddit, flair, author) or plain text for Slack/others.
 - Optional **DM notifications** to one or more Discord users (with flair info).
 - Change settings live with **slash commands** (no restart needed).
 - Automatically updates `.env` so settings persist.
 - **Always loads your saved `.env` at startup** (no `/reloadenv` needed unless manually editing).
 - Supports **Discord-specific embeds** and plain text fallback for others.
+
+> ⚙️ Each feature (webhooks, flair filtering, keyword filtering, DMs) is **modular** and can be enabled/disabled independently.
+
+---
 
 ## Slash Commands
 
@@ -43,22 +49,26 @@ Bot replies use **Discord embeds** for clean, consistent output.
 - `/setflairs [flair1, flair2,...]` — Set which flairs to monitor.  
   Run with **no arguments** to clear and watch all posts.
 - `/enabledms <true/false>` — Enable or disable DM notifications.
-- `/setkeywords [keyword1, keyword2,...]` — Filter posts by keywords in the title or body.  
-  Run with **no arguments** to disable keyword filtering and allow all posts.
+- `/setkeywords [keyword1, keyword2,...]` — Set keywords to filter posts by title or body.  
+  Run with **no arguments** to disable keyword filtering and allow all posts.  
+  This helps narrow alerts to posts you're specifically interested in.
 
 ### DM User Management
 - `/adddmuser <user_id>` — Add a user to the DM list.
 - `/removedmuser <user_id>` — Remove a user from the DM list.
 
 ### Info & Maintenance
-- `/status` — Show current settings (subreddit, interval, flairs, post limit, DM status, DM users, and webhook).  
+- `/status` — Show current settings (subreddit, interval, flairs, post limit, keyword filters, DM status, DM users, and webhook).  
   Webhook and sensitive data are shown only to you (ephemeral).
 - `/help` — Show this command list in Discord.
 - `/reloadenv` — Reload `.env` without restarting (useful if you edited it manually while the bot is running).
 - `/whereenv` — Show the path to the `.env` file being used.
 
+---
+
 ## Webhook Behavior
-- **Discord webhooks** use embeds with:
+
+- **Discord webhooks** use rich embeds with:
   - Subreddit name
   - Flair (or "No Flair")
   - Post author
