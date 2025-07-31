@@ -43,6 +43,8 @@ Bot replies use **Discord embeds** for clean, consistent output.
 - `/setflairs [flair1, flair2,...]` — Set which flairs to monitor.  
   Run with **no arguments** to clear and watch all posts.
 - `/enabledms <true/false>` — Enable or disable DM notifications.
+- `/setkeywords [keyword1, keyword2,...]` — Filter posts by keywords in the title or body.  
+  Run with **no arguments** to disable keyword filtering and allow all posts.
 
 ### DM User Management
 - `/adddmuser <user_id>` — Add a user to the DM list.
@@ -113,20 +115,15 @@ ADMIN_USER_IDS=123456789012345678
 
 When inviting the bot to your server, make sure it has the following **minimum permissions**:
 
-- **Read Messages/View Channels** – So the bot can see the channels where you run commands.
-- **Send Messages** – Allows the bot to reply to your slash commands.
-- **Embed Links** – Required to send rich embeds (for slash command responses and Discord webhooks).
-- **Use Slash Commands** – Automatically included for bots but must be enabled on your application.
-- **Read Message History** *(optional)* – Only needed if you want the bot to reference past messages (not required by default).
-
-You do **not** need to give the bot Administrator rights. These permissions are enough for all its features.
+- **Read Messages/View Channels**
+- **Send Messages**
+- **Embed Links**
+- **Use Slash Commands**
+- **Read Message History** *(optional)*
 
 ### 5. Run the Bot with Docker
-Use `docker-compose.yml` to build and run the bot. Mount `.env` so settings persist.
-
 ```yaml
 version: "3.8"
-
 services:
   reddit-notifier:
     build: .
@@ -142,7 +139,6 @@ docker compose logs -f
 ```
 
 ### 6. Running Multiple Bots
-Duplicate the service in `docker-compose.yml` (each with its own `.env`):
 ```yaml
 version: "3.8"
 services:
