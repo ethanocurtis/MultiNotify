@@ -94,7 +94,7 @@ def matches_keywords(post):
     if not KEYWORDS:
         return True
     content = f"{post.title} {post.selftext}".lower()
-    return any(re.search(rf"\b{{re.escape(kw)}}\b", content) for kw in KEYWORDS)
+    return any(re.search(rf"{re.escape(kw)}", content) for kw in KEYWORDS)
 
 async def fetch_and_notify():
     global last_post_ids
