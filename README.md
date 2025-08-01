@@ -16,9 +16,8 @@ Monitor a subreddit for new posts (optionally filtered by flair or keywords) and
   - [Run the Bot](#5-run-the-bot-with-docker)
   - [Multiple Bots](#6-running-multiple-bots)
 - [Notes](#notes)
-- [License](#license)
 - [Updating the Bot](#updating-the-bot)
-
+- [License](#license)
 ## Features
 
 - Monitor any subreddit for new posts.
