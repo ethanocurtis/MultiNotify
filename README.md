@@ -45,7 +45,7 @@ Bot replies use **Discord embeds** for clean, consistent output.
 - `/setpostlimit <number>` — Set how many posts to fetch each cycle.
 - `/setwebhook [url]` — Set or clear the webhook (blank clears it).  
   Discord webhooks get full embeds; others get plain text.
-- `/setflairs [flair1, flair2,...]` — Set which flairs to monitor.  
+- `/setflairs [flair1, flair2,...]` — Set which flairs to monitor(Case Sensitive.  
   Run with **no arguments** to clear and watch all posts.
 - `/enabledms <true/false>` — Enable or disable DM notifications.
 - `/setkeywords [keyword1, keyword2,...]` — Set keywords to filter posts by title or body.  
