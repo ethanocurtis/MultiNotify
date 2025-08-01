@@ -1,4 +1,3 @@
-
 # MultiNotify(v1.3)
 
 ![Python](https://img.shields.io/badge/Python-3.8+-blue) ![Discord](https://img.shields.io/badge/Discord-Bot-brightgreen) ![Webhooks](https://img.shields.io/badge/Webhook-Supported-green) ![Mattermost](https://img.shields.io/badge/Mattermost-Compatible-orange) ![Slack](https://img.shields.io/badge/Slack-Compatible-lightgrey) ![DM Mode](https://img.shields.io/badge/DM-Mode%20Supported-purple) ![License: MIT](https://img.shields.io/badge/License-MIT-yellow)
@@ -18,6 +17,7 @@ Monitor a subreddit for new posts (optionally filtered by flair or keywords) and
   - [Multiple Bots](#6-running-multiple-bots)
 - [Notes](#notes)
 - [License](#license)
+- [Updating the Bot](#updating-the-bot)
 
 ## Features
 
@@ -173,6 +173,31 @@ services:
 - `.env` changes made via commands persist across restarts.
 - Automatically detects Discord vs other webhooks (embeds vs plain text).
 - The wiki is currently out of date and will be updated ASAP.
+
+
+
+## Updating the Bot
+
+When a new version of MultiNotify is released, follow these steps to update your running bot instance:
+
+1. **Pull the latest code:**
+   ```bash
+   git pull origin main
+   ```
+
+2. **(Optional) Review any updated `.env.example` changes** and apply them manually to your own `.env` file if needed.
+
+3. **Rebuild and restart your Docker container:**
+   ```bash
+   docker compose up -d --build
+   ```
+
+4. **Check the logs** to confirm successful startup:
+   ```bash
+   docker compose logs -f
+   ```
+
+This ensures you're running the most recent version with all latest features and fixes.
 
 ## License
 MIT
