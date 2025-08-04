@@ -94,7 +94,7 @@ def matches_keywords(post):
     if not KEYWORDS:
         return True
     content = f"{post.title} {post.selftext}".lower()
-    return any(re.search(rf"{re.escape(kw)}", content) for kw in KEYWORDS)
+    return any(re.search(rf"\b{re.escape(kw)}\b", content) for kw in KEYWORDS)
 
 async def fetch_and_notify():
     global last_post_ids
@@ -104,6 +104,18 @@ async def fetch_and_notify():
             subreddit = reddit.subreddit(SUBREDDIT)
             new_posts = []
             for submission in subreddit.new(limit=POST_LIMIT):
+                print(f"[DEBUG] Checking post: {submission.title}")
+                if not matches_keywords(submission):
+                    print(f"[DEBUG] Post skipped due to keyword mismatch.")
+                    continue
+                elif ALLOWED_FLAIRS and submission.link_flair_text not in ALLOWED_FLAIRS:
+                    print(f"[DEBUG] Post skipped due to flair mismatch: {submission.link_flair_text}")
+                    continue
+                elif submission.id in last_post_ids:
+                    print(f"[DEBUG] Post already seen.")
+                    continue
+                print(f"[DEBUG] Post matched and will notify.")
+
                 if ALLOWED_FLAIRS and submission.link_flair_text not in ALLOWED_FLAIRS:
                     continue
                 if not matches_keywords(submission):
