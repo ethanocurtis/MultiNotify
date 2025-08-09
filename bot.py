@@ -1,4 +1,3 @@
-
 import os
 import sys
 import praw
@@ -39,12 +38,12 @@ ENABLE_DM = os.environ.get("ENABLE_DM", "false").lower() == "true"
 DISCORD_USER_IDS = [u.strip() for u in os.environ.get("DISCORD_USER_IDS", "").split(",") if u.strip()]
 ADMIN_USER_IDS = [u.strip() for u in os.environ.get("ADMIN_USER_IDS", "").split(",") if u.strip()]
 
-# NEW: Separate keywords for Reddit vs RSS (with backward-compat for legacy KEYWORDS)
+# Separate keywords for Reddit vs RSS (legacy KEYWORDS still supported)
 LEGACY_KEYWORDS = [k.strip().lower() for k in os.environ.get("KEYWORDS", "").split(",") if k.strip()]
 REDDIT_KEYWORDS = [k.strip().lower() for k in os.environ.get("REDDIT_KEYWORDS", "").split(",") if k.strip()] or LEGACY_KEYWORDS
 RSS_KEYWORDS = [k.strip().lower() for k in os.environ.get("RSS_KEYWORDS", "").split(",") if k.strip()]
 
-# NEW: RSS feeds and channel IDs
+# RSS feeds and channel IDs
 RSS_FEEDS = [u.strip() for u in os.environ.get("RSS_FEEDS", "").split(",") if u.strip()]
 RSS_LIMIT = int(os.environ.get("RSS_LIMIT", 10))
 DISCORD_CHANNEL_IDS = [c.strip() for c in os.environ.get("DISCORD_CHANNEL_IDS", "").split(",") if c.strip()]
@@ -66,8 +65,12 @@ tree = app_commands.CommandTree(client)
 last_post_ids = set()
 rss_last_ids = set()  # track seen RSS items
 
+# ---------- Visuals (footer-only icons) ----------
+REDDIT_ICON = "https://www.redditstatic.com/desktop2x/img/favicon/android-icon-192x192.png"
+# PNG version of the RSS icon for Discord
+RSS_ICON = "https://upload.wikimedia.org/wikipedia/commons/thumb/4/43/Feed-icon.svg/192px-Feed-icon.svg.png"
 
-# ---------- Helpers ----------
+
 def update_env_var(key, value):
     lines = []
     if os.path.exists(ENV_FILE):
@@ -86,10 +89,11 @@ def update_env_var(key, value):
 
 
 def make_embed(title, description, color=discord.Color.blue(), url=None):
+    """Generic embed for command responses (no product logo)."""
     embed = discord.Embed(title=title, description=description, color=color, timestamp=datetime.utcnow())
     if url:
         embed.url = url
-    embed.set_footer(text="MultiNotify Bot", icon_url="https://www.redditstatic.com/desktop2x/img/favicon/android-icon-192x192.png")
+    embed.set_footer(text="MultiNotify Bot")
     return embed
 
 
@@ -116,31 +120,46 @@ def matches_keywords_post(post, keywords_list) -> bool:
     return any(re.search(rf"\b{re.escape(kw)}\b", content) for kw in keywords_list)
 
 
-async def send_webhook_embed(title, url, description, color=discord.Color.orange()):
+def build_source_embed(title, url, description, color, source_type):
+    """Embed with text label at top (no icon), and small icon in footer only."""
+    embed = discord.Embed(title=title, url=url, description=description, color=color, timestamp=datetime.utcnow())
+
+    if source_type == "reddit":
+        embed.set_author(name="Reddit")  # text only, no icon
+        embed.set_footer(text="MultiNotify • Reddit", icon_url=REDDIT_ICON)
+    elif source_type == "rss":
+        embed.set_author(name="RSS Feed")  # text only, no icon
+        embed.set_footer(text="MultiNotify • RSS", icon_url=RSS_ICON)
+    else:
+        embed.set_footer(text="MultiNotify")
+    return embed
+
+
+async def send_webhook_embed(title, url, description, color, source_type):
+    """Send to webhook (Discord embeds for discord.com, plain text otherwise)."""
     if not WEBHOOK_URL:
         return
     if "discord.com" in WEBHOOK_URL:
-        embed = discord.Embed(title=title, url=url, description=description, color=color, timestamp=datetime.utcnow())
-        embed.set_footer(text="MultiNotify Bot", icon_url="https://www.redditstatic.com/desktop2x/img/favicon/android-icon-192x192.png")
+        embed = build_source_embed(title, url, description, color, source_type)
         try:
             requests.post(WEBHOOK_URL, json={"embeds": [embed.to_dict()]}, timeout=10)
         except Exception as e:
             print(f"[ERROR] Failed to send Discord webhook embed: {e}")
     else:
-        # Generic webhook (Slack, etc.)
-        msg = f"{title}\n{url}\n{description}"
+        # Generic webhook (Slack, etc.) — plain text
+        prefix = "[Reddit]" if source_type == "reddit" else "[RSS]"
+        msg = f"{prefix} {title}\n{url}\n{description}"
         try:
             requests.post(WEBHOOK_URL, json={"text": msg}, timeout=10)
         except Exception as e:
             print(f"[ERROR] Failed to send non-Discord webhook: {e}")
 
 
-async def notify_channels(title, url, description, color=discord.Color.orange()):
-    # Send to configured Discord channels via the bot (no webhook)
+async def notify_channels(title, url, description, color, source_type):
+    """Send directly to configured Discord channels via the bot (no webhook)."""
     if not DISCORD_CHANNEL_IDS:
         return
-    embed = discord.Embed(title=title, url=url, description=description, color=color, timestamp=datetime.utcnow())
-    embed.set_footer(text="MultiNotify Bot")
+    embed = build_source_embed(title, url, description, color, source_type)
     for cid in DISCORD_CHANNEL_IDS:
         try:
             channel = client.get_channel(int(cid))
@@ -189,14 +208,14 @@ async def process_reddit():
         description = f"Subreddit: r/{SUBREDDIT}\nFlair: **{flair}**\nAuthor: u/{post.author}"
 
         # Webhook (Discord embed if discord.com)
-        await send_webhook_embed(post.title, post_url, description, color=discord.Color.orange())
+        await send_webhook_embed(post.title, post_url, description, color=discord.Color.orange(), source_type="reddit")
 
         # Channels
-        await notify_channels(post.title, post_url, description, color=discord.Color.orange())
+        await notify_channels(post.title, post_url, description, color=discord.Color.orange(), source_type="reddit")
 
         # DMs
         if ENABLE_DM and DISCORD_USER_IDS:
-            dm_text = f"New post in r/{SUBREDDIT} (Flair: {flair}) by u/{post.author}: {post.title} ({post_url})"
+            dm_text = f"[Reddit] r/{SUBREDDIT} • Flair: {flair} • u/{post.author}\n{post.title}\n{post_url}"
             await notify_dms(dm_text)
 
 
@@ -258,14 +277,14 @@ async def process_rss():
         description = f"Feed: **{feed_title}**\nSource: {domain_from_url(link)}\n\n{clean_summary}"
 
         # Webhook
-        await send_webhook_embed(title, link, description, color=discord.Color.blurple())
+        await send_webhook_embed(title, link, description, color=discord.Color.blurple(), source_type="rss")
 
         # Channels
-        await notify_channels(title, link, description, color=discord.Color.blurple())
+        await notify_channels(title, link, description, color=discord.Color.blurple(), source_type="rss")
 
         # DMs
         if ENABLE_DM and DISCORD_USER_IDS:
-            dm_text = f"New RSS item from {feed_title}: {title} ({link})"
+            dm_text = f"[RSS] {feed_title}\n{title}\n{link}"
             await notify_dms(dm_text)
 
 
@@ -414,7 +433,7 @@ async def setrsskeywords(interaction: discord.Interaction, words: str = ""):
         await interaction.response.send_message(embed=make_embed("RSS Keywords Cleared", "No keywords set. ALL RSS items will be considered.", discord.Color.green()), ephemeral=True)
 
 
-# Backward compatibility: keep /setkeywords to set BOTH lists at once
+# Legacy: set BOTH lists at once
 @tree.command(name="setkeywords", description="(Legacy) Set/clear keywords for BOTH Reddit and RSS")
 async def setkeywords(interaction: discord.Interaction, words: str = ""):
     if not is_admin(interaction):
@@ -425,8 +444,7 @@ async def setkeywords(interaction: discord.Interaction, words: str = ""):
     RSS_KEYWORDS = new_list[:]
     update_env_var("REDDIT_KEYWORDS", ",".join(REDDIT_KEYWORDS))
     update_env_var("RSS_KEYWORDS", ",".join(RSS_KEYWORDS))
-    # Also update legacy KEYWORDS for people reading .env manually
-    update_env_var("KEYWORDS", ",".join(new_list))
+    update_env_var("KEYWORDS", ",".join(new_list))  # keep legacy env in sync
     label = ", ".join(new_list) if new_list else "ALL"
     await interaction.response.send_message(embed=make_embed("Keywords Updated (Legacy)", f"Reddit & RSS now filter by: {label}", discord.Color.green()), ephemeral=True)
 
