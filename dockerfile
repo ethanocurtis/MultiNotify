@@ -5,7 +5,7 @@ WORKDIR /app
 COPY bot.py .
 
 # Install dependencies for Reddit, webhooks, Discord, and async performance
-RUN pip install --no-cache-dir praw requests discord.py uvloop
+RUN pip install --no-cache-dir praw requests discord.py uvloop feedparser
 
 # Force unbuffered output so logs show up instantly in `docker logs`
 ENV PYTHONUNBUFFERED=1
