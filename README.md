@@ -21,6 +21,20 @@ Monitor subreddits **and** RSS/Atom feeds for new content (optionally filtered b
 
 ## Features
 
+## Global vs Personal Settings
+
+**Global settings** are managed by admins listed in `ADMIN_USER_IDS` in `.env` and apply to all users by default.  
+They include global subreddit, flairs, keywords, RSS feeds, webhooks, quiet hours, etc.
+
+**Personal settings** can be set by any user and override the global settings for that user's notifications.  
+A user can have their own subreddit(s), flairs, keywords, RSS feeds, digest mode, and quiet hours.
+
+**Priority:** Personal settings override global settings for the same category.  
+For example, if a personal subreddit is set, the user will only receive notifications for that subreddit (plus their own feeds), ignoring the global subreddit.
+
+If the global subreddit is cleared, global Reddit monitoring is paused until one is set again. Personal subreddits still work.
+
+
 - Monitor any subreddit for new posts.
 - Monitor any number of RSS or Atom feeds.
 - Separate **keyword filtering** for Reddit and RSS (whole word matching, case-insensitive).
@@ -45,11 +59,11 @@ All commands require the user to be listed in `ADMIN_USER_IDS` in `.env`.
 Bot replies use **Discord embeds** for clean, consistent output.
 
 ### Reddit Configuration
-- `/setsubreddit <name>` — Set the subreddit being monitored.
+- `/setsubreddit [name]` — Set the subreddit being monitored. Run with **no arguments** to clear and stop monitoring any subreddit.
 - `/setinterval <seconds>` — Set how often the bot checks for new items (affects both Reddit and RSS).
 - `/setpostlimit <number>` — Set how many Reddit posts to fetch each cycle.
 - `/setflairs [flair1, flair2,...]` — Set which flairs to monitor (**case sensitive**).  
-  Run with **no arguments** to clear and watch all posts.
+  Run with **no arguments** to clear the flair filter and watch all posts.
 - `/setredditkeywords [keyword1, keyword2,...]` — Set keywords for Reddit filtering.  
   Run with **no arguments** to disable keyword filtering and allow all Reddit posts.
 
@@ -69,6 +83,30 @@ Bot replies use **Discord embeds** for clean, consistent output.
 - `/enabledms <true/false>` — Enable or disable DM notifications.
 - `/adddmuser <user_id>` — Add a user to the DM list.
 - `/removedmuser <user_id>` — Remove a user from the DM list.
+- `/setquiethours <start_hour> <end_hour>` — Set quiet hours in **UTC** (suppress notifications during these hours).
+- `/setdigest <off|daily|weekly> [HH:MM] [day(mon..sun)]` — Set personal digest mode and optional send time/day.
+
+
+
+### Personal Settings Commands
+These commands are available to all users and control **only your own notifications**. They override global settings for that category.
+
+#### Personal Reddit
+- `/mysubreddit [name]` — Set your personal subreddit. Blank clears.
+- `/myflairs [flair1, flair2,...]` — Set your personal flairs. Blank clears.
+- `/myredditkeywords [kw1, kw2,...]` — Set personal Reddit keywords. Blank clears.
+
+#### Personal RSS
+- `/myrssadd <url>` — Add a personal RSS/Atom feed.
+- `/myrssremove <url>` — Remove a personal RSS feed.
+- `/myrsslist` — List your personal RSS feeds.
+- `/myrsskeywords [kw1, kw2,...]` — Set personal RSS keywords. Blank clears.
+
+#### Personal Delivery
+- `/mypreferredchannel <channel_id>` — Set preferred Discord channel for personal notifications. Blank clears (use DM).
+- `/setdigest <off|daily|weekly> [HH:MM] [day]` — Set personal digest mode.
+- `/setquiethours <start_hour> <end_hour>` — Set personal quiet hours (UTC).
+
 
 ### Discord Channel Notifications
 - `/addchannel <channel_id>` — Add a Discord channel ID for notifications.
@@ -156,12 +194,14 @@ ADMIN_USER_IDS=123456789012345678
 ### 5. Run the Bot with Docker
 ```yaml
 version: "3.8"
+
 services:
   reddit-notifier:
     build: .
     volumes:
       - ./bot.py:/app/bot.py
       - ./.env:/app/.env
+      - ./data:/app/data
     restart: unless-stopped
 ```
 Run:
@@ -178,20 +218,25 @@ services:
     build: .
     volumes:
       - ./bot.py:/app/bot.py
-      - ./.env:/app/.env
+      - ./.env.bot1:/app/.env
+      - ./data-bot1:/app/data
     restart: unless-stopped
 
   reddit-notifier-2:
     build: .
     volumes:
       - ./bot.py:/app/bot.py
-      - ./.env.another:/app/.env
+      - ./.env.bot2:/app/.env
+      - ./data-bot2:/app/data
     restart: unless-stopped
 ```
+
 
 ---
 
 ## Notes
+- If the subreddit is cleared, global Reddit fetching is disabled until a new subreddit is set.
+- Quiet hours use **UTC** time.
 - RSS and Reddit each have **independent keyword filters**.
 - Keyword matching is **exact whole word** and case-insensitive.
 - `.env` changes made via commands persist across restarts.
