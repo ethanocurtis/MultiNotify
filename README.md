@@ -21,6 +21,32 @@ Monitor subreddits **and** RSS/Atom feeds for new content (optionally filtered b
 
 ## Features
 
+## How It Works
+
+MultiNotify periodically checks the configured sources and delivers new content based on both global and personal settings:
+
+1. **Fetching Content**
+   - Reddit: Monitors the configured global subreddit (if set) and any personal subreddits set by users.
+   - RSS/Atom: Monitors all global feeds plus any personal feeds.
+
+2. **Filtering**
+   - Posts and feed items can be filtered by flair (Reddit only) and/or keywords (both Reddit and RSS).
+   - Filters can be set globally or personally. Personal filters override global filters for that user.
+
+3. **Delivery**
+   - Global settings deliver to webhooks, global channels, and the global DM list.
+   - Personal settings deliver to the user’s preferred channel or DM.
+
+4. **Seen Posts Handling**
+   - **Global Seen List**: Shared across the bot for all global deliveries (webhooks, global channels, global DM list). If a post/item is delivered once via global, it won’t be sent again via global to anyone.
+   - **Per-User Seen Lists**: Each user has their own list for personal deliveries. Even if another user already received a post personally, you’ll still get it if it matches your personal settings and you haven’t seen it before.
+
+**Key Notes:**
+- The global and personal seen lists are separate.
+- Clearing/changing the global subreddit does not affect personal seen lists.
+- This allows multiple users to monitor the same subreddit personally without blocking each other’s notifications.
+
+
 ## Global vs Personal Settings
 
 **Global settings** are managed by admins listed in `ADMIN_USER_IDS` in `.env` and apply to all users by default.  
