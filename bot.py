@@ -1,4 +1,3 @@
-
 import os
 import sys
 import praw
@@ -10,7 +9,7 @@ import feedparser
 import json
 from pathlib import Path
 from discord import app_commands
-from datetime import datetime, time, timedelta
+from datetime import datetime, time
 from urllib.parse import urlparse
 
 # ---------- .env loader (container-friendly) ----------
@@ -41,7 +40,7 @@ ENABLE_DM = os.environ.get("ENABLE_DM", "false").lower() == "true"
 DISCORD_USER_IDS = [u.strip() for u in os.environ.get("DISCORD_USER_IDS", "").split(",") if u.strip()]
 ADMIN_USER_IDS = [u.strip() for u in os.environ.get("ADMIN_USER_IDS", "").split(",") if u.strip()]
 
-# Separate keywords for Reddit vs RSS
+# Separate keywords for Reddit vs RSS (legacy KEYWORDS still supported)
 LEGACY_KEYWORDS = [k.strip().lower() for k in os.environ.get("KEYWORDS", "").split(",") if k.strip()]
 REDDIT_KEYWORDS = [k.strip().lower() for k in os.environ.get("REDDIT_KEYWORDS", "").split(",") if k.strip()] or LEGACY_KEYWORDS
 RSS_KEYWORDS = [k.strip().lower() for k in os.environ.get("RSS_KEYWORDS", "").split(",") if k.strip()]
@@ -68,12 +67,16 @@ tree = app_commands.CommandTree(client)
 DATA_DIR = Path("/app/data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-# Persisted "seen" IDs so restarts don't resend old stuff
-SEEN_PATH = DATA_DIR / "seen.json"  # {"reddit": ["id1","id2"], "rss": ["id3","id4"]}
-
-# Digest queues and metadata
-DIGEST_QUEUE_PATH = DATA_DIR / "digests.json"     # { uid: [ {type, title, link, meta..., ts} ] }
-DIGEST_META_PATH  = DATA_DIR / "digest_meta.json" # { uid: {"daily_last":"YYYY-MM-DD","weekly_last":"YYYY-WW"} }
+# ---------- Seen store (per-destination) ----------
+# seen.json shape:
+# {
+#   "global": {"reddit": ["id1","id2"], "rss": ["id3","id4"]},
+#   "users": {
+#       "1234567890": {"reddit": ["idA"], "rss": ["idB"]},
+#       ...
+#   }
+# }
+SEEN_PATH = DATA_DIR / "seen.json"
 
 def _load_json(path: Path, default):
     try:
@@ -81,25 +84,59 @@ def _load_json(path: Path, default):
     except Exception:
         return default
 
-def load_seen():
-    data = _load_json(SEEN_PATH, {"reddit": [], "rss": []})
-    if not isinstance(data, dict):
-        data = {"reddit": [], "rss": []}
-    data.setdefault("reddit", [])
-    data.setdefault("rss", [])
-    return data
+def _ensure_seen_shape(d: dict) -> dict:
+    if not isinstance(d, dict):
+        d = {}
+    d.setdefault("global", {})
+    d["global"].setdefault("reddit", [])
+    d["global"].setdefault("rss", [])
+    d.setdefault("users", {})
+    for uid, rec in list(d["users"].items()):
+        if not isinstance(rec, dict):
+            d["users"][uid] = {"reddit": [], "rss": []}
+        else:
+            rec.setdefault("reddit", [])
+            rec.setdefault("rss", [])
+    return d
 
-def save_seen(reddit_ids, rss_ids):
+def load_seen():
+    return _ensure_seen_shape(_load_json(SEEN_PATH, {}))
+
+def save_seen(seen):
     try:
-        SEEN_PATH.write_text(json.dumps({"reddit": list(reddit_ids), "rss": list(rss_ids)}, indent=2), encoding="utf-8")
+        SEEN_PATH.write_text(json.dumps(seen, indent=2), encoding="utf-8")
     except Exception as e:
         print(f"[ERROR] Saving seen.json: {e}")
 
-seen_boot = load_seen()
+_seen = load_seen()
 
-# ---------- State ----------
-last_post_ids = set(seen_boot.get("reddit", []))
-rss_last_ids = set(seen_boot.get("rss", []))
+def _prune_list(lst, limit=5000):
+    if len(lst) > limit:
+        del lst[:-limit]
+
+def get_global_seen(kind: str) -> set:
+    rec = _seen.get("global", {})
+    return set(rec.get(kind, []))
+
+def mark_global_seen(kind: str, item_id: str):
+    rec = _seen.setdefault("global", {})
+    arr = rec.setdefault(kind, [])
+    if item_id not in arr:
+        arr.append(item_id)
+        _prune_list(arr)
+        save_seen(_seen)
+
+def get_user_seen(uid: int, kind: str) -> set:
+    urec = _seen.setdefault("users", {}).setdefault(str(uid), {"reddit": [], "rss": []})
+    return set(urec.get(kind, []))
+
+def mark_user_seen(uid: int, kind: str, item_id: str):
+    urec = _seen.setdefault("users", {}).setdefault(str(uid), {"reddit": [], "rss": []})
+    arr = urec.setdefault(kind, [])
+    if item_id not in arr:
+        arr.append(item_id)
+        _prune_list(arr)
+        save_seen(_seen)
 
 # ---------- Visuals (footer-only icons) ----------
 REDDIT_ICON = "https://www.redditstatic.com/desktop2x/img/favicon/android-icon-192x192.png"
@@ -116,8 +153,7 @@ def save_prefs():
         print(f"[ERROR] Saving prefs: {e}")
 
 def _norm_sub(name: str) -> str:
-    name = (name or "").strip()
-    name = name.lower()
+    name = (name or "").strip().lower()
     if name.startswith("r/"):
         name = name[2:]
     return name
@@ -170,6 +206,9 @@ def is_quiet_now(uid: int):
         return False
 
 # ---------- Digest helpers ----------
+DIGEST_QUEUE_PATH = DATA_DIR / "digests.json"     # { uid: [ {type, title, link, meta..., ts} ] }
+DIGEST_META_PATH  = DATA_DIR / "digest_meta.json" # { uid: {"daily_last":"YYYY-MM-DD","weekly_last":"YYYY-WW"} }
+
 def _load_digests():
     data = _load_json(DIGEST_QUEUE_PATH, {})
     return data if isinstance(data, dict) else {}
@@ -217,17 +256,15 @@ def should_send_digest(uid: int) -> bool:
     hh, mm = (p.get("digest_time","09:00") or "09:00").split(":")
     hh, mm = int(hh), int(mm)
     now = datetime.utcnow()
-    due_today = now.hour == hh and now.minute >= mm  # minute or later within the same minute window
+    due_today = now.hour == hh and now.minute >= mm
 
     meta = _load_digest_meta()
     rec = meta.get(str(uid), {})
     if mode == "daily":
-        # compare date
         last = rec.get("daily_last", "")  # "YYYY-MM-DD"
         today = now.strftime("%Y-%m-%d")
         return due_today and last != today
     if mode == "weekly":
-        # check day and week number
         if now.weekday() != weekday_index(p.get("digest_day","mon")) or not due_today:
             return False
         iso_year, iso_week, _ = now.isocalendar()
@@ -366,8 +403,6 @@ def union_user_feeds():
 
 # ---------- Reddit ----------
 async def process_reddit():
-    global last_post_ids, rss_last_ids
-
     # Build union of subreddits to fetch for PERSONAL pipeline
     union_subs = union_user_subreddits()
     # If no subs anywhere, skip reddit entirely
@@ -381,29 +416,23 @@ async def process_reddit():
         try:
             sr = reddit.subreddit(sub_name)
             for submission in sr.new(limit=POST_LIMIT):
-                if submission.id in last_post_ids:
-                    continue
-
-                # Record for personal route (ignores global filters)
+                # Collect for personal route
                 personal_posts.append((submission, sub_name))
 
-                # Global route only if SUBREDDIT is set and this matches it
+                # Global route only if SUBREDDIT is set and matches
                 if SUBREDDIT and sub_name == _norm_sub(SUBREDDIT):
                     flair_ok = (not ALLOWED_FLAIRS) or (submission.link_flair_text in ALLOWED_FLAIRS)
                     kw_ok = matches_keywords_post(submission, REDDIT_KEYWORDS)
                     if flair_ok and kw_ok:
                         global_posts.append(submission)
-
-                last_post_ids.add(submission.id)
         except Exception as e:
             print(f"[ERROR] Fetch subreddit r/{sub_name}: {e}")
 
-    # Save seen after scanning
-    save_seen(last_post_ids, rss_last_ids)
-
-    # ---------- GLOBAL DELIVERY (unchanged behavior) ----------
+    # ---------- GLOBAL DELIVERY ----------
     if SUBREDDIT:
         for post in reversed(global_posts):
+            if post.id in get_global_seen("reddit"):
+                continue
             flair = post.link_flair_text if post.link_flair_text else "No Flair"
             post_url = f"https://reddit.com{post.permalink}"
             description = f"Subreddit: r/{_norm_sub(SUBREDDIT)}\nFlair: **{flair}**\nAuthor: u/{post.author}"
@@ -411,12 +440,15 @@ async def process_reddit():
             await send_webhook_embed(post.title, post_url, description, color=discord.Color.orange(), source_type="reddit")
             await notify_channels(post.title, post_url, description, color=discord.Color.orange(), source_type="reddit")
 
+            # Mark global seen
+            mark_global_seen("reddit", post.id)
+
             # Global DM list — deliberately IGNORE quiet hours
             if ENABLE_DM and DISCORD_USER_IDS:
                 dm_text = f"[Reddit] r/{_norm_sub(SUBREDDIT)} • Flair: {flair} • u/{post.author}\n{post.title}\n{post_url}"
                 await notify_dms(dm_text)
 
-    # ---------- PERSONAL DELIVERY (ignores global filters) ----------
+    # ---------- PERSONAL DELIVERY ----------
     if user_prefs:
         for post, sub_name in reversed(personal_posts):
             post_url = f"https://reddit.com{post.permalink}"
@@ -449,6 +481,11 @@ async def process_reddit():
                 if is_quiet_now(uid):
                     continue
 
+                # Per-user seen check
+                if post.id in get_user_seen(uid, "reddit"):
+                    continue
+
+                # Digest path
                 if p.get("digest","off") != "off":
                     queue_digest_item(uid, {
                         "type": "reddit",
@@ -459,8 +496,10 @@ async def process_reddit():
                         "author": str(post.author) if post.author else "unknown",
                         "ts": datetime.utcnow().isoformat(timespec="seconds")
                     })
+                    mark_user_seen(uid, "reddit", post.id)
                     continue
 
+                # Immediate delivery
                 try:
                     embed = build_source_embed(
                         post.title,
@@ -475,12 +514,12 @@ async def process_reddit():
                     elif p.get("enable_dm"):
                         user = await client.fetch_user(uid)
                         await user.send(embed=embed)
+                    mark_user_seen(uid, "reddit", post.id)
                 except Exception as e:
                     print(f"[ERROR] Personal delivery to {uid}: {e}")
 
 # ---------- RSS ----------
 async def process_rss():
-    global rss_last_ids, last_post_ids
     # Build union of feeds for PERSONAL fetch; global still uses RSS_FEEDS for global pipeline
     feeds_union = union_user_feeds()
     if not feeds_union:
@@ -500,8 +539,6 @@ async def process_rss():
                     break
                 entry_id = entry.get("id") or entry.get("link") or f"{entry.get('title','')}-{entry.get('published','')}"
                 if not entry_id:
-                    continue
-                if entry_id in rss_last_ids:
                     continue
 
                 title = entry.get("title", "Untitled")
@@ -530,17 +567,15 @@ async def process_rss():
                         "feed_url": feed_url
                     })
 
-                rss_last_ids.add(entry_id)
                 count += 1
 
         except Exception as e:
             print(f"[ERROR] Failed to parse RSS feed {feed_url}: {e}")
 
-    # Save seen after scanning
-    save_seen(last_post_ids, rss_last_ids)
-
-    # ---------- GLOBAL DELIVERY (unchanged behavior) ----------
+    # ---------- GLOBAL DELIVERY ----------
     for item in reversed(global_items):
+        if item["id"] in get_global_seen("rss"):
+            continue
         feed_title = item["feed_title"]
         title = item["title"]
         link = item["link"]
@@ -554,12 +589,15 @@ async def process_rss():
         await send_webhook_embed(title, link, description, color=discord.Color.blurple(), source_type="rss")
         await notify_channels(title, link, description, color=discord.Color.blurple(), source_type="rss")
 
+        # Mark global seen
+        mark_global_seen("rss", item["id"])
+
         # Global DM list — deliberately IGNORE quiet hours
         if ENABLE_DM and DISCORD_USER_IDS:
             dm_text = f"[RSS] {feed_title}\n{title}\n{link}"
             await notify_dms(dm_text)
 
-    # ---------- PERSONAL DELIVERY (ignores global filters) ----------
+    # ---------- PERSONAL DELIVERY ----------
     if user_prefs:
         for item in reversed(personal_items):
             feed_title = item["feed_title"]
@@ -594,6 +632,10 @@ async def process_rss():
                 if is_quiet_now(uid):
                     continue
 
+                # Per-user seen check
+                if item["id"] in get_user_seen(uid, "rss"):
+                    continue
+
                 if p.get("digest","off") != "off":
                     queue_digest_item(uid, {
                         "type": "rss",
@@ -602,6 +644,7 @@ async def process_rss():
                         "feed_title": feed_title,
                         "ts": datetime.utcnow().isoformat(timespec="seconds")
                     })
+                    mark_user_seen(uid, "rss", item["id"])
                     continue
 
                 try:
@@ -612,6 +655,7 @@ async def process_rss():
                     elif p.get("enable_dm"):
                         user = await client.fetch_user(uid)
                         await user.send(embed=embed)
+                    mark_user_seen(uid, "rss", item["id"])
                 except Exception as e:
                     print(f"[ERROR] Personal RSS delivery to {uid}: {e}")
 
@@ -634,7 +678,6 @@ async def fetch_and_notify():
 async def digest_scheduler():
     await client.wait_until_ready()
     while not client.is_closed():
-        # For each user with digest enabled, if due and has items, send and clear
         try:
             for uid_str in list(user_prefs.keys()):
                 uid = int(uid_str)
@@ -646,12 +689,10 @@ async def digest_scheduler():
 
                 items = pop_all_digest_items(uid)
                 if not items:
-                    # still mark sent to avoid spamming empty digests
                     mark_digest_sent(uid)
                     continue
 
-                # Build digest message(s)
-                # Prefer preferred_channel_id else DMs
+                # Destination
                 dest_channel_id = p.get("preferred_channel_id")
                 dest_user = None
                 dest_channel = None
@@ -664,7 +705,7 @@ async def digest_scheduler():
                     print(f"[ERROR] Resolving destination for {uid}: {e}")
                     continue
 
-                # Chunk items to avoid overlong messages (max ~25 lines per message)
+                # Build chunks
                 def format_line(it):
                     if it.get("type") == "reddit":
                         sub = it.get("subreddit","?")
@@ -696,7 +737,7 @@ async def digest_scheduler():
         except Exception as e:
             print(f"[ERROR] digest_scheduler: {e}")
 
-        await asyncio.sleep(60)  # check every minute
+        await asyncio.sleep(60)
 
 # ---------- Auth ----------
 def is_admin(interaction: discord.Interaction):
