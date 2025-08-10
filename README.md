@@ -20,6 +20,17 @@ Monitor subreddits **and** RSS/Atom feeds for new content (optionally filtered b
 - [License](#license)
 
 ## Features
+- Monitor any subreddit for new posts (global or personal).
+- Monitor any number of RSS/Atom feeds (global or personal).
+- Separate **keyword filtering** for Reddit and RSS (whole word, case-insensitive).
+- Filter Reddit posts by one or multiple **flairs** (case-sensitive), or watch all.
+- Deliver to **Discord webhooks** (embeds), **Discord channels** (embeds), **DMs** (embeds), and **non‑Discord webhooks** (plain text).
+- Live configuration via **slash commands** with **.env auto‑persist**.
+- **Quiet hours** (personal) and **per‑user digests** (daily/weekly).
+- **Per-destination “seen” tracking** to prevent duplicate spam while allowing multiple users to follow the same sources independently.
+- Fully containerized; easy to run with Docker/Compose.
+
+
 
 ## How It Works
 
@@ -45,7 +56,6 @@ MultiNotify periodically checks the configured sources and delivers new content 
 - The global and personal seen lists are separate.
 - Clearing/changing the global subreddit does not affect personal seen lists.
 - This allows multiple users to monitor the same subreddit personally without blocking each other’s notifications.
-
 
 ## Global vs Personal Settings
 
