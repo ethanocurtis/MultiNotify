@@ -6,4 +6,5 @@ services:
     volumes:
       - ./bot.py:/app/bot.py
       - ./.env:/app/.env
+      - ./data:/app/data
     restart: unless-stopped
