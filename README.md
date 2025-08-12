@@ -186,7 +186,7 @@ ADMIN_USER_IDS=123456789012345678
 ```yaml
 version: "3.8"
 services:
-  reddit-notifier:
+  multinotify:
     build: .
     volumes:
       - ./bot.py:/app/bot.py
@@ -204,7 +204,7 @@ docker compose logs -f
 ```yaml
 version: "3.8"
 services:
-  reddit-notifier-1:
+  multinotify-1:
     build: .
     volumes:
       - ./bot.py:/app/bot.py
@@ -212,7 +212,7 @@ services:
       - ./data-bot1:/app/data
     restart: unless-stopped
 
-  reddit-notifier-2:
+  multinotify-2:
     build: .
     volumes:
       - ./bot.py:/app/bot.py
