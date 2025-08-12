@@ -4,8 +4,12 @@
 
 Monitor subreddits **and** RSS/Atom feeds for new content (optionally filtered by flair or separate keyword lists) and automatically send them to Discord, Mattermost, Slack, or other services via webhook or directly to specific Discord channels. Supports **Discord embeds, DM notifications, slash commands, automatic `.env` updates**, and is fully containerized for easy deployment.
 
+> ⏰ **Timezone:** All user-facing times (digests, quiet hours, timestamps shown in embeds) use **America/Chicago**.
+
 ## Table of Contents
 - [Features](#features)
+- [How It Works](#how-it-works)
+- [Global vs Personal Settings](#global-vs-personal-settings)
 - [Slash Commands](#slash-commands)
 - [Webhook Behavior](#webhook-behavior)
 - [How to Use](#how-to-use)
@@ -17,158 +21,107 @@ Monitor subreddits **and** RSS/Atom feeds for new content (optionally filtered b
   - [Multiple Bots](#6-running-multiple-bots)
 - [Notes](#notes)
 - [Updating the Bot](#updating-the-bot)
+- [Support](#support)
 - [License](#license)
 
 ## Features
 - Monitor any subreddit for new posts (global or personal).
 - Monitor any number of RSS/Atom feeds (global or personal).
 - Separate **keyword filtering** for Reddit and RSS (whole word, case-insensitive).
-- Filter Reddit posts by one or multiple **flairs** (case-sensitive), or watch all.
+- Filter Reddit posts by one or multiple **flairs** (case‑sensitive), or watch all.
+- **Personal flair filtering** per user that can override global flair filters.
 - Deliver to **Discord webhooks** (embeds), **Discord channels** (embeds), **DMs** (embeds), and **non‑Discord webhooks** (plain text).
 - Live configuration via **slash commands** with **.env auto‑persist**.
 - **Quiet hours** (personal) and **per‑user digests** (daily/weekly).
-- **Per-destination “seen” tracking** to prevent duplicate spam while allowing multiple users to follow the same sources independently.
+- **Quarter‑hour time suggestions** for digest time and **day dropdown** for weekly digests.
+- **Per‑destination “seen” tracking** to prevent duplicate spam while allowing multiple users to follow the same sources independently.
 - Fully containerized; easy to run with Docker/Compose.
-
-
+> ⚙️ All modules (webhooks, channel sends, flair filtering, keyword filtering, DMs) can be enabled or disabled independently for both global and personal settings.
 
 ## How It Works
-
 MultiNotify periodically checks the configured sources and delivers new content based on both global and personal settings:
 
-1. **Fetching Content**
-   - Reddit: Monitors the configured global subreddit (if set) and any personal subreddits set by users.
-   - RSS/Atom: Monitors all global feeds plus any personal feeds.
+1. **Fetching**
+   - **Reddit:** Monitors the configured global subreddit (if set) and any personal subreddits set by users.
+   - **RSS/Atom:** Monitors all global feeds plus any personal feeds.
 
 2. **Filtering**
    - Posts and feed items can be filtered by flair (Reddit only) and/or keywords (both Reddit and RSS).
-   - Filters can be set globally or personally. Personal filters override global filters for that user.
+   - Filters can be set globally or personally. **Personal flair filters override global flair filters for that user.**
 
 3. **Delivery**
    - Global settings deliver to webhooks, global channels, and the global DM list.
    - Personal settings deliver to the user’s preferred channel or DM.
 
-4. **Seen Posts Handling**
-   - **Global Seen List**: Shared across the bot for all global deliveries (webhooks, global channels, global DM list). If a post/item is delivered once via global, it won’t be sent again via global to anyone.
-   - **Per-User Seen Lists**: Each user has their own list for personal deliveries. Even if another user already received a post personally, you’ll still get it if it matches your personal settings and you haven’t seen it before.
-
-**Key Notes:**
-- The global and personal seen lists are separate.
-- Clearing/changing the global subreddit does not affect personal seen lists.
-- This allows multiple users to monitor the same subreddit personally without blocking each other’s notifications.
+4. **Seen Handling**
+   - **Global seen list:** Shared for global deliveries (webhooks/channels/global DMs).
+   - **Per-user seen lists:** Each user has their own list for personal deliveries.
 
 ## Global vs Personal Settings
+**Global settings** are managed by admins listed in `ADMIN_USER_IDS` and apply by default.  
+**Personal settings** can be set by any user and override the global settings for that user.
 
-**Global settings** are managed by admins listed in `ADMIN_USER_IDS` in `.env` and apply to all users by default.  
-They include global subreddit, flairs, keywords, RSS feeds, webhooks, quiet hours, etc.
+**Priority:** Personal settings override their global counterparts (e.g., personal subreddits/flairs/keywords take precedence).
 
-**Personal settings** can be set by any user and override the global settings for that user's notifications.  
-A user can have their own subreddit(s), flairs, keywords, RSS feeds, digest mode, and quiet hours.
-
-**Priority:** Personal settings override global settings for the same category.  
-For example, if a personal subreddit is set, the user will only receive notifications for that subreddit (plus their own feeds), ignoring the global subreddit.
-
-If the global subreddit is cleared, global Reddit monitoring is paused until one is set again. Personal subreddits still work.
-
-
-- Monitor any subreddit for new posts.
-- Monitor any number of RSS or Atom feeds.
-- Separate **keyword filtering** for Reddit and RSS (whole word matching, case-insensitive).
-- Filter Reddit posts by one or multiple flairs (or watch all posts).
-- Send notifications:
-  - **Discord embeds** (subreddit/feed, flair/source, author, link).
-  - Plain text for Slack, Mattermost, etc.
-  - Directly into specific Discord channels (via bot, no webhook required).
-  - Optional **DM notifications** to one or more Discord users.
-- Change settings live with **slash commands** (no restart needed).
-- Automatically updates `.env` so settings persist.
-- Always loads your saved `.env` at startup.
-- Supports **Discord-specific embeds** and plain text fallback for others.
-
-> ⚙️ All modules (webhooks, channel sends, flair filtering, keyword filtering, DMs) can be enabled or disabled independently.
+If the global subreddit is cleared, global Reddit monitoring pauses. Personal subreddits still work.
 
 ---
 
 ## Slash Commands
 
-All commands require the user to be listed in `ADMIN_USER_IDS` in `.env`.  
-Bot replies use **Discord embeds** for clean, consistent output.
+**Permissions note:**  
+- **Global commands** require the caller to be in `ADMIN_USER_IDS`.  
+- **Personal commands** can be used by **any user**.
 
-### Reddit Configuration
-- `/setsubreddit [name]` — Set the subreddit being monitored. Run with **no arguments** to clear and stop monitoring any subreddit.
-- `/setinterval <seconds>` — Set how often the bot checks for new items (affects both Reddit and RSS).
-- `/setpostlimit <number>` — Set how many Reddit posts to fetch each cycle.
-- `/setflairs [flair1, flair2,...]` — Set which flairs to monitor (**case sensitive**).  
-  Run with **no arguments** to clear the flair filter and watch all posts.
-- `/setredditkeywords [keyword1, keyword2,...]` — Set keywords for Reddit filtering.  
-  Run with **no arguments** to disable keyword filtering and allow all Reddit posts.
+### Global (Admin) Commands
+- `/setsubreddit [name]` — Set/clear the global subreddit to monitor.
+- `/setinterval <seconds>` — Polling interval for new items.
+- `/setpostlimit <number>` — How many Reddit posts to fetch each cycle.
+- `/setflairs [flair1, flair2,...]` — Global Reddit flair filter (**case‑sensitive**). Blank clears (allow all).
+- `/setredditkeywords [kw1, kw2,...]` — Global Reddit keywords. Blank clears (allow all).
+- `/setrsskeywords [kw1, kw2,...]` — Global RSS keywords. Blank clears (allow all).
+- `/setkeywords [kw1, kw2,...]` — **Legacy:** set the same keywords for both Reddit and RSS.
+- `/setwebhook [url]` — Set/clear webhook. Discord webhooks get embeds; others get plain text.
+- `/enabledms <true/false>` — Enable/disable global DM notifications.
+- `/adddmuser <user_id>` / `/removedmuser <user_id>` — Manage global DM recipients.
+- `/addrss <url>` / `/removerss <url>` / `/listrss` — Manage global RSS feeds.
+- `/addchannel <channel_id>` / `/removechannel <channel_id>` / `/listchannels` — Manage Discord channels for global sends.
+- `/status` — Show current configuration (ephemeral).
+- `/help` — Show help (ephemeral).
+- `/reloadenv` — Reload `.env`.
+- `/whereenv` — Show the path to `.env`.
 
-### RSS Configuration
-- `/addrss <url>` — Add an RSS or Atom feed URL.
-- `/removerss <url>` — Remove a feed.
-- `/listrss` — List all configured feeds.
-- `/setrsskeywords [keyword1, keyword2,...]` — Set keywords for RSS filtering.  
-  Run with **no arguments** to disable keyword filtering and allow all RSS items.
-
-### Combined Keyword Control
-- `/setkeywords [keyword1, keyword2,...]` — **Legacy**: set the same keyword list for both Reddit and RSS at once.
-
-### Notification Settings
-- `/setwebhook [url]` — Set or clear the webhook (blank clears it).  
-  Discord webhooks get embeds; others get plain text.
-- `/enabledms <true/false>` — Enable or disable DM notifications.
-- `/adddmuser <user_id>` — Add a user to the DM list.
-- `/removedmuser <user_id>` — Remove a user from the DM list.
-- `/setquiethours <start_hour> <end_hour>` — Set quiet hours in **UTC** (suppress notifications during these hours).
-- `/setdigest <off|daily|weekly> [HH:MM] [day(mon..sun)]` — Set personal digest mode and optional send time/day.
-
-
-
-### Personal Settings Commands
-These commands are available to all users and control **only your own notifications**. They override global settings for that category.
-
-#### Personal Reddit
-- `/mysubreddit [name]` — Set your personal subreddit. Blank clears.
-- `/myflairs [flair1, flair2,...]` — Set your personal flairs. Blank clears.
-- `/myredditkeywords [kw1, kw2,...]` — Set personal Reddit keywords. Blank clears.
-
-#### Personal RSS
-- `/myrssadd <url>` — Add a personal RSS/Atom feed.
-- `/myrssremove <url>` — Remove a personal RSS feed.
-- `/myrsslist` — List your personal RSS feeds.
-- `/myrsskeywords [kw1, kw2,...]` — Set personal RSS keywords. Blank clears.
-
-#### Personal Delivery
-- `/mypreferredchannel <channel_id>` — Set preferred Discord channel for personal notifications. Blank clears (use DM).
-- `/setdigest <off|daily|weekly> [HH:MM] [day]` — Set personal digest mode.
-- `/setquiethours <start_hour> <end_hour>` — Set personal quiet hours (UTC).
-
-
-### Discord Channel Notifications
-- `/addchannel <channel_id>` — Add a Discord channel ID for notifications.
-- `/removechannel <channel_id>` — Remove a channel ID.
-- `/listchannels` — Show all channels set for notifications.
-
-### Info & Maintenance
-- `/status` — Show current settings (subreddit, interval, flairs, Reddit keywords, RSS keywords, post limit, DM status, DM users, webhook, channels, and RSS feeds).  
-  Webhook and sensitive data are shown only to you (ephemeral).
-- `/help` — Show this command list in Discord.
-- `/reloadenv` — Reload `.env` without restarting (useful if you edited it manually).
-- `/whereenv` — Show the path to the `.env` file being used.
+### Personal (Any User) Commands
+- `/myprefs` — Show your personal settings.
+- `/setmydms <true/false>` — Enable or disable **your** DMs.
+- `/setmykeywords reddit:<csv> rss:<csv>` — Set **your** Reddit/RSS keywords. Blank to clear.
+- `/setmyflairs [flair1, flair2,...]` — Set **your** Reddit flairs. Blank to allow all.
+- `/mysubs add <subreddit> | remove <subreddit> | list` — Manage **your** subreddits.
+- `/myfeeds add <url> | remove <url> | list` — Manage **your** RSS/Atom feeds.
+- `/setchannel [channel_id]` — Send **your** personal notifications to this channel instead of DMs (blank to revert to DMs).
+- `/setdigest mode:<off|daily|weekly> [time_chi:HH:MM] [day:mon..sun]` —  
+  Set your digest:
+  - `mode` chooses off/daily/weekly.
+  - `time_chi` has **quarter‑hour suggestions** (00:00, 00:15, …, 23:45) in **America/Chicago**.
+  - `day` is a **dropdown** when `mode=weekly`.
+  - Default time if omitted: **09:00 America/Chicago**.
+- `/setquiet <start HH:MM> <end HH:MM>` — Set your quiet hours in **America/Chicago** (suppresses personal deliveries during that window).
+- `/quietoff` — Disable your quiet hours.
 
 ---
 
 ## Webhook Behavior
+Discord webhooks get embeds; non‑Discord webhooks (Slack, Mattermost, etc.) get plain text for compatibility.
 
-- **Discord webhooks** use rich embeds with:
-  - Source (Subreddit or Feed name)
-  - Flair (Reddit) or Feed domain (RSS)
-  - Author (Reddit only)
-  - Title (linked to source)
-  - Icon branding
-- **Non-Discord webhooks** (Slack, Mattermost, etc.) use plain text for compatibility.
+- **Discord webhooks** use embeds:
+  - Source (Subreddit or Feed title)
+  - Flair (Reddit) or Source domain (RSS)
+  - Author (Reddit)
+  - Title (linked)
+  - Branding icons
+- **Non-Discord webhooks** (Slack, Mattermost, etc.) use plain text.
 - **DM notifications** include source, flair/feed name, author (if Reddit), title, and a link.
-- **Channel sends** use embeds similar to Discord webhooks but are sent directly by the bot.
+- **Channel sends** use the same embed style as Discord webhooks, but sent by the bot.
 
 ---
 
@@ -181,8 +134,8 @@ cd MultiNotify
 ```
 
 ### 2. Create a Reddit App
-1. Log in to [https://www.reddit.com/prefs/apps](https://www.reddit.com/prefs/apps).
-2. Under **"Developed Applications"**, click **"create app"**.
+1. Go to https://www.reddit.com/prefs/apps
+2. Under **Developed Applications**, click **create app**.
 3. Fill in:
    - **Name**: `multinotify`
    - **Type**: `script`
@@ -194,19 +147,23 @@ Copy and edit `.env.example`:
 ```bash
 cp .env.example .env
 ```
-Example configuration:
+Example:
 ```env
 REDDIT_CLIENT_ID=your_client_id_here
 REDDIT_CLIENT_SECRET=your_client_secret_here
 REDDIT_USER_AGENT=multinotify-bot by u/yourusername
+
 SUBREDDIT=asubreddit
 ALLOWED_FLAIR=flair1,flair2
+
 REDDIT_KEYWORDS=word1,word2
 RSS_KEYWORDS=word3,word4
 RSS_FEEDS=https://example.com/feed,https://another.com/rss
+
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 CHECK_INTERVAL=300
 POST_LIMIT=10
+
 ENABLE_DM=true
 DISCORD_TOKEN=your_discord_bot_token_here
 DISCORD_USER_IDS=123456789012345678
@@ -215,22 +172,19 @@ ADMIN_USER_IDS=123456789012345678
 ```
 
 ### 4. Enable Discord Bot DMs
-1. Create a bot in the [Discord Developer Portal](https://discord.com/developers/applications).
-2. Copy its token into `DISCORD_TOKEN`.
-3. Enable **"Direct Messages Intent"**.
-4. Invite it to your server with the required permissions.
-
-**Minimum Permissions**:
-- Read Messages/View Channels
-- Send Messages
-- Embed Links
-- Use Slash Commands
-- *(Optional)* Read Message History
+1. Create a bot in the **Discord Developer Portal**.
+2. Paste its token into `DISCORD_TOKEN`.
+3. Enable **Message Content Intent** if needed for your setup and **Use Slash Commands**.
+4. Invite it to your server with:
+   - Read Messages/View Channels
+   - Send Messages
+   - Embed Links
+   - Use Slash Commands
+   - *(Optional)* Read Message History
 
 ### 5. Run the Bot with Docker
 ```yaml
 version: "3.8"
-
 services:
   reddit-notifier:
     build: .
@@ -267,34 +221,32 @@ services:
     restart: unless-stopped
 ```
 
-
 ---
 
 ## Notes
-- If the subreddit is cleared, global Reddit fetching is disabled until a new subreddit is set.
-- Quiet hours use **UTC** time.
-- RSS and Reddit each have **independent keyword filters**.
-- Keyword matching is **exact whole word** and case-insensitive.
+- Quiet hours use **America/Chicago** time for start and end.
+
+- If the global subreddit is cleared, global Reddit fetching is disabled until a new subreddit is set; personal subreddits continue to work.
+- **All times are America/Chicago.**
+- RSS and Reddit each have **independent** keyword filters.
+- Keyword matching is **exact whole word** and case‑insensitive.
 - `.env` changes made via commands persist across restarts.
-- Supports Discord webhooks, non-Discord webhooks, channel sends, and DMs.
+- Supports Discord webhooks, non‑Discord webhooks, channel sends, and DMs.
 - The bot always loads your `.env` at startup.
 
 ---
 
 ## Updating the Bot
-
-To update to the latest version:
 ```bash
 git pull origin main
 docker compose up -d --build
 ```
-Check `.env.example` for new options and add them if needed.  
+Check `.env.example` for new options and add them if needed.
 
 ---
 
 ## Support
-
-For issues, questions, or suggestions, feel free to open an issue on GitHub or contact me:  
+For issues, questions, or suggestions, open an issue or ping me:  
 [![Discord](https://img.shields.io/badge/Message%20me%20on%20Discord-ethanocurtis-5865F2?logo=discord&logoColor=white)](https://discordapp.com/users/167485961477947392)
 
 ---
