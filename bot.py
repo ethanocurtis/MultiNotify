@@ -11,6 +11,14 @@ from pathlib import Path
 from discord import app_commands
 from datetime import datetime, time
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
+from typing import List
+
+# ---------- Timezone (hard switch) ----------
+TZ = ZoneInfo("America/Chicago")
+
+def now_local():
+    return datetime.now(TZ)
 
 # ---------- .env loader (container-friendly) ----------
 ENV_FILE = os.path.join("/app", ".env")
@@ -68,14 +76,6 @@ DATA_DIR = Path("/app/data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------- Seen store (per-destination) ----------
-# seen.json shape:
-# {
-#   "global": {"reddit": ["id1","id2"], "rss": ["id3","id4"]},
-#   "users": {
-#       "1234567890": {"reddit": ["idA"], "rss": ["idB"]},
-#       ...
-#   }
-# }
 SEEN_PATH = DATA_DIR / "seen.json"
 
 def _load_json(path: Path, default):
@@ -165,19 +165,17 @@ def get_user_prefs(uid: int):
         "enable_dm": ENABLE_DM,            # default to global for convenience
         "reddit_keywords": [],             # empty => allow all for personal
         "rss_keywords": [],                # empty => allow all for personal
-        "quiet_hours": None,               # {"start":"22:00","end":"07:00"} or None
+        "quiet_hours": None,               # {"start":"22:00","end":"07:00"} or None  (America/Chicago)
         "digest": "off",                   # off | daily | weekly
-        "digest_time": "09:00",            # UTC HH:MM for daily/weekly send
-        "digest_day": "mon",               # for weekly digests: mon|tue|...|sun
+        "digest_time": "09:00",            # HH:MM in America/Chicago
+        "digest_day": "mon",               # mon|tue|...|sun
         "preferred_channel_id": None,      # channel to send to instead of DM
         "reddit_flairs": [],               # optional personal flair filter; empty => allow all
         "feeds": [],                       # personal RSS/Atom feed URLs
         "subreddits": []                   # personal subreddit list (names without r/)
     }
     p = {**base, **user_prefs.get(uid, {})}
-    # normalize subs
     p["subreddits"] = [_norm_sub(s) for s in p.get("subreddits", []) if _norm_sub(s)]
-    # normalize digest day
     day = (p.get("digest_day") or "mon").lower()
     if day not in ("mon","tue","wed","thu","fri","sat","sun"):
         day = "mon"
@@ -192,16 +190,16 @@ def set_user_pref(uid: int, key: str, value):
     save_prefs()
 
 def is_quiet_now(uid: int):
-    """Quiet hours apply ONLY to personal deliveries (global DM list ignores this)."""
+    """Quiet hours apply ONLY to personal deliveries (global DM list ignores this). Interpreted in America/Chicago."""
     q = get_user_prefs(uid).get("quiet_hours")
     if not q:
         return False
     try:
         sH, sM = map(int, q["start"].split(":"))
         eH, eM = map(int, q["end"].split(":"))
-        now = datetime.utcnow().time()
+        now_t = now_local().time()
         start, end = time(sH, sM), time(eH, eM)
-        return (start <= now < end) if start < end else (now >= start or now < end)
+        return (start <= now_t < end) if start < end else (now_t >= start or now_t < end)
     except Exception:
         return False
 
@@ -255,13 +253,13 @@ def should_send_digest(uid: int) -> bool:
 
     hh, mm = (p.get("digest_time","09:00") or "09:00").split(":")
     hh, mm = int(hh), int(mm)
-    now = datetime.utcnow()
-    due_today = now.hour == hh and now.minute >= mm
+    now = now_local()
+    due_today = (now.hour == hh and now.minute >= mm)
 
     meta = _load_digest_meta()
     rec = meta.get(str(uid), {})
     if mode == "daily":
-        last = rec.get("daily_last", "")  # "YYYY-MM-DD"
+        last = rec.get("daily_last", "")  # "YYYY-MM-DD" in America/Chicago
         today = now.strftime("%Y-%m-%d")
         return due_today and last != today
     if mode == "weekly":
@@ -278,7 +276,7 @@ def mark_digest_sent(uid: int):
     mode = p.get("digest","off")
     if mode == "off":
         return
-    now = datetime.utcnow()
+    now = now_local()
     meta = _load_digest_meta()
     rec = meta.get(str(uid), {})
     if mode == "daily":
@@ -307,7 +305,8 @@ def update_env_var(key, value):
         f.writelines(lines)
 
 def make_embed(title, description, color=discord.Color.blue(), url=None):
-    embed = discord.Embed(title=title, description=description, color=color, timestamp=datetime.utcnow())
+    # Timestamp shown as local time for readability
+    embed = discord.Embed(title=title, description=description, color=color, timestamp=now_local())
     if url:
         embed.url = url
     embed.set_footer(text="MultiNotify Bot")
@@ -332,7 +331,7 @@ def matches_keywords_post(post, keywords_list) -> bool:
     return any(re.search(rf"\b{re.escape(kw)}\b", content) for kw in keywords_list)
 
 def build_source_embed(title, url, description, color, source_type):
-    embed = discord.Embed(title=title, url=url, description=description, color=color, timestamp=datetime.utcnow())
+    embed = discord.Embed(title=title, url=url, description=description, color=color, timestamp=now_local())
     if source_type == "reddit":
         embed.set_author(name="Reddit")
         embed.set_footer(text="MultiNotify • Reddit", icon_url=REDDIT_ICON)
@@ -494,7 +493,7 @@ async def process_reddit():
                         "subreddit": sub_name_l,
                         "flair": flair,
                         "author": str(post.author) if post.author else "unknown",
-                        "ts": datetime.utcnow().isoformat(timespec="seconds")
+                        "ts": now_local().isoformat(timespec="seconds")
                     })
                     mark_user_seen(uid, "reddit", post.id)
                     continue
@@ -642,7 +641,7 @@ async def process_rss():
                         "title": title,
                         "link": link,
                         "feed_title": feed_title,
-                        "ts": datetime.utcnow().isoformat(timespec="seconds")
+                        "ts": now_local().isoformat(timespec="seconds")
                     })
                     mark_user_seen(uid, "rss", item["id"])
                     continue
@@ -718,7 +717,6 @@ async def digest_scheduler():
                 CHUNK = 20
                 chunks = [lines[i:i+CHUNK] for i in range(0, len(lines), CHUNK)]
 
-                header = f"\nCollected items: **{len(items)}**"
                 for idx, block in enumerate(chunks, start=1):
                     desc = "\n".join(block)
                     title = "Your Daily Digest" if p.get("digest") == "daily" else f"Your Weekly Digest ({p.get('digest_day').capitalize()})"
@@ -898,7 +896,8 @@ async def status(interaction: discord.Interaction):
         f"DMs (GLOBAL): **{dm_status}** (Users: {dm_users}).\n"
         f"Webhook: `{webhook_text}`\n"
         f"Channels: **{chan_text}**\n"
-        f"RSS Feeds:\n{rss_text}"
+        f"RSS Feeds:\n{rss_text}\n"
+        f"Time zone: **America/Chicago**"
     )
     await interaction.response.send_message(embed=make_embed("Bot Status", msg), ephemeral=True)
 
@@ -931,76 +930,15 @@ async def help_cmd(interaction: discord.Interaction):
         "/myprefs",
         "/setmydms <true/false>",
         "/setmykeywords reddit:<csv> rss:<csv>",
-        "/setquiet <start HH:MM> <end HH:MM>",
+        "/setmyflairs [comma separated]",
+        "/setquiet <start HH:MM> <end HH:MM>   (America/Chicago)",
         "/quietoff",
         "/setchannel <channel_id or blank>",
         "/myfeeds add <url> | remove <url> | list",
         "/mysubs add <subreddit> | remove <subreddit> | list",
-        "/setdigest <off|daily|weekly> [HH:MM] [day(mon..sun)]"
+        "/setdigest <off|daily|weekly> [HH:MM] [day(mon..sun)]   (America/Chicago)"
     ])
     await interaction.response.send_message(embed=make_embed("Help", f"**Available Commands:**\n{commands_text}"), ephemeral=True)
-
-# ---------- RSS feed management (GLOBAL) ----------
-@tree.command(name="addrss", description="Add an RSS/Atom feed URL (GLOBAL)")
-async def addrss(interaction: discord.Interaction, url: str):
-    if not is_admin(interaction):
-        return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True)
-    global RSS_FEEDS
-    url = url.strip()
-    if url and url not in RSS_FEEDS:
-        RSS_FEEDS.append(url)
-        update_env_var("RSS_FEEDS", ",".join(RSS_FEEDS))
-        await interaction.response.send_message(embed=make_embed("RSS Added", f"Added: {url}", discord.Color.green()), ephemeral=True)
-    else:
-        await interaction.response.send_message(embed=make_embed("RSS Not Added", "URL empty or already present."), ephemeral=True)
-
-@tree.command(name="removerss", description="Remove an RSS/Atom feed URL (GLOBAL)")
-async def removerss(interaction: discord.Interaction, url: str):
-    if not is_admin(interaction):
-        return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True)
-    global RSS_FEEDS
-    url = url.strip()
-    if url in RSS_FEEDS:
-        RSS_FEEDS.remove(url)
-        update_env_var("RSS_FEEDS", ",".join(RSS_FEEDS))
-        await interaction.response.send_message(embed=make_embed("RSS Removed", f"Removed: {url}", discord.Color.green()), ephemeral=True)
-    else:
-        await interaction.response.send_message(embed=make_embed("Not Found", "That URL isn't in the list."), ephemeral=True)
-
-@tree.command(name="listrss", description="List configured RSS/Atom feed URLs (GLOBAL)")
-async def listrss(interaction: discord.Interaction):
-    text = "\n".join([f"- {u}" for u in RSS_FEEDS]) if RSS_FEEDS else "None"
-    await interaction.response.send_message(embed=make_embed("RSS Feeds", text), ephemeral=True)
-
-# ---------- Channel management (GLOBAL) ----------
-@tree.command(name="addchannel", description="Add a Discord channel ID for notifications (GLOBAL)")
-async def addchannel(interaction: discord.Interaction, channel_id: str):
-    if not is_admin(interaction):
-        return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True)
-    global DISCORD_CHANNEL_IDS
-    if channel_id not in DISCORD_CHANNEL_IDS:
-        DISCORD_CHANNEL_IDS.append(channel_id)
-        update_env_var("DISCORD_CHANNEL_IDS", ",".join(DISCORD_CHANNEL_IDS))
-        await interaction.response.send_message(embed=make_embed("Channel Added", f"Added channel ID: {channel_id}", discord.Color.green()), ephemeral=True)
-    else:
-        await interaction.response.send_message(embed=make_embed("No Change", "Channel ID already present."), ephemeral=True)
-
-@tree.command(name="removechannel", description="Remove a Discord channel ID from notifications (GLOBAL)")
-async def removechannel(interaction: discord.Interaction, channel_id: str):
-    if not is_admin(interaction):
-        return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True)
-    global DISCORD_CHANNEL_IDS
-    if channel_id in DISCORD_CHANNEL_IDS:
-        DISCORD_CHANNEL_IDS.remove(channel_id)
-        update_env_var("DISCORD_CHANNEL_IDS", ",".join(DISCORD_CHANNEL_IDS))
-        await interaction.response.send_message(embed=make_embed("Channel Removed", f"Removed channel ID: {channel_id}", discord.Color.green()), ephemeral=True)
-    else:
-        await interaction.response.send_message(embed=make_embed("Not Found", "That channel ID isn't in the list."), ephemeral=True)
-
-@tree.command(name="listchannels", description="List Discord channel IDs used for notifications (GLOBAL)")
-async def listchannels(interaction: discord.Interaction):
-    text = ", ".join(DISCORD_CHANNEL_IDS) if DISCORD_CHANNEL_IDS else "None"
-    await interaction.response.send_message(embed=make_embed("Channels", text), ephemeral=True)
 
 # ---------- Personal commands (ANY USER) ----------
 @tree.command(name="myprefs", description="Show your personal notification settings")
@@ -1010,8 +948,9 @@ async def myprefs(interaction: discord.Interaction):
         f"DMs: **{'on' if p['enable_dm'] else 'off'}**\n"
         f"Reddit keywords: **{', '.join(p['reddit_keywords']) or 'ALL'}**\n"
         f"RSS keywords: **{', '.join(p['rss_keywords']) or 'ALL'}**\n"
-        f"Quiet hours (UTC): **{p['quiet_hours'] or 'off'}**\n"
-        f"Digest: **{p['digest']}** at **{p['digest_time']}**{' on **'+p['digest_day']+'**' if p['digest']=='weekly' else ''}\n"
+        f"Personal flairs: **{', '.join(p['reddit_flairs']) or 'ALL'}**\n"
+        f"Quiet hours (America/Chicago): **{p['quiet_hours'] or 'off'}**\n"
+        f"Digest: **{p['digest']}** at **{p['digest_time']}**{' on **'+p['digest_day']+'**' if p['digest']=='weekly' else ''} (America/Chicago)\n"
         f"Preferred channel: **{p['preferred_channel_id'] or 'DMs'}**\n"
         f"Personal feeds: **{len(p['feeds'])}**\n"
         f"Personal subreddits: **{len(p['subreddits'])}**"
@@ -1040,10 +979,26 @@ async def setmykeywords(interaction: discord.Interaction, reddit: str = "", rss:
     label = ", ".join(changed) if changed else "none"
     await interaction.response.send_message(embed=make_embed("Updated", f"Personal keywords saved ({label})."), ephemeral=True)
 
-@tree.command(name="setquiet", description="Set quiet hours (UTC). Example: 22:00 07:00")
+@tree.command(name="setmyflairs", description="Set your personal allowed Reddit flairs (comma separated, blank for ALL)")
+async def setmyflairs(interaction: discord.Interaction, flairs: str = ""):
+    # Normalize input into a list
+    flair_list = [f.strip() for f in (flairs or "").split(",") if f.strip()] if flairs else []
+    set_user_pref(interaction.user.id, "reddit_flairs", flair_list)
+    if flair_list:
+        await interaction.response.send_message(
+            embed=make_embed("Personal Flairs Updated", f"Now filtering Reddit by: {', '.join(flair_list)}"),
+            ephemeral=True
+        )
+    else:
+        await interaction.response.send_message(
+            embed=make_embed("Personal Flairs Cleared", "No flair filter set — ALL flairs allowed for you."),
+            ephemeral=True
+        )
+
+@tree.command(name="setquiet", description="Set quiet hours (America/Chicago). Example: 22:00 07:00")
 async def setquiet(interaction: discord.Interaction, start: str, end: str):
     set_user_pref(interaction.user.id, "quiet_hours", {"start": start, "end": end})
-    await interaction.response.send_message(embed=make_embed("Updated", f"Quiet hours set: {start}–{end} (UTC)"), ephemeral=True)
+    await interaction.response.send_message(embed=make_embed("Updated", f"Quiet hours set: {start}–{end} (America/Chicago)"), ephemeral=True)
 
 @tree.command(name="quietoff", description="Disable your quiet hours")
 async def quietoff(interaction: discord.Interaction):
@@ -1091,44 +1046,21 @@ async def myfeeds(interaction: discord.Interaction, action: str, url: str = ""):
 
     await interaction.response.send_message(embed=make_embed("Invalid Action", "Use: `/myfeeds add <url>`, `/myfeeds remove <url>`, or `/myfeeds list`"), ephemeral=True)
 
-# ---- Personal subreddit management ----
-@tree.command(name="mysubs", description="Manage your personal subreddits: add/remove/list")
-async def mysubs(interaction: discord.Interaction, action: str, name: str = ""):
-    action = (action or "").strip().lower()
-    p = get_user_prefs(interaction.user.id)
-    subs = [_norm_sub(s) for s in p.get("subreddits", []) if _norm_sub(s)]
+# ---- Personal digest management with day choices + time autocomplete ----
+DAY_CHOICES = [
+    app_commands.Choice(name="Mon", value="mon"),
+    app_commands.Choice(name="Tue", value="tue"),
+    app_commands.Choice(name="Wed", value="wed"),
+    app_commands.Choice(name="Thu", value="thu"),
+    app_commands.Choice(name="Fri", value="fri"),
+    app_commands.Choice(name="Sat", value="sat"),
+    app_commands.Choice(name="Sun", value="sun"),
+]
 
-    if action == "list":
-        text = "\n".join([f"- r/{s}" for s in subs]) if subs else (f"You have no personal subreddits. Default is r/{_norm_sub(SUBREDDIT)}." if SUBREDDIT else "You have no personal subreddits and no global subreddit is set.") + " Use `/mysubs add <subreddit>`."
-        return await interaction.response.send_message(embed=make_embed("Your Subreddits", text), ephemeral=True)
-
-    if action == "add":
-        name = _norm_sub(name)
-        if not name:
-            return await interaction.response.send_message(embed=make_embed("Need Subreddit", "Usage: `/mysubs add <subreddit>` (without r/)"), ephemeral=True)
-        if name not in subs:
-            subs.append(name)
-            set_user_pref(interaction.user.id, "subreddits", subs)
-            return await interaction.response.send_message(embed=make_embed("Sub Added", f"Added: r/{name}"), ephemeral=True)
-        else:
-            return await interaction.response.send_message(embed=make_embed("No Change", f"r/{name} is already in your list."), ephemeral=True)
-
-    if action == "remove":
-        name = _norm_sub(name)
-        if not name:
-            return await interaction.response.send_message(embed=make_embed("Need Subreddit", "Usage: `/mysubs remove <subreddit>` (without r/)"), ephemeral=True)
-        if name in subs:
-            subs.remove(name)
-            set_user_pref(interaction.user.id, "subreddits", subs)
-            return await interaction.response.send_message(embed=make_embed("Sub Removed", f"Removed: r/{name}"), ephemeral=True)
-        else:
-            return await interaction.response.send_message(embed=make_embed("Not Found", "That subreddit isn't in your list."), ephemeral=True)
-
-    await interaction.response.send_message(embed=make_embed("Invalid Action", "Use: `/mysubs add <subreddit>`, `/mysubs remove <subreddit>`, or `/mysubs list`"), ephemeral=True)
-
-# ---- Personal digest management ----
-@tree.command(name="setdigest", description="Set your digest: off|daily|weekly [HH:MM] [day(mon..sun)]")
-async def setdigest(interaction: discord.Interaction, mode: str, time_utc: str = "", day: str = ""):
+@tree.command(name="setdigest", description="Set your digest: off|daily|weekly [HH:MM] [day] (America/Chicago)")
+@app_commands.describe(mode="off | daily | weekly", time_chi="HH:MM in America/Chicago", day="Day of week (weekly only)")
+@app_commands.choices(day=DAY_CHOICES)
+async def setdigest(interaction: discord.Interaction, mode: str, time_chi: str = "", day: app_commands.Choice[str] = None):
     mode = (mode or "").lower()
     if mode not in ("off","daily","weekly"):
         return await interaction.response.send_message(embed=make_embed("Invalid", "Mode must be off, daily, or weekly."), ephemeral=True)
@@ -1138,25 +1070,31 @@ async def setdigest(interaction: discord.Interaction, mode: str, time_utc: str =
         await interaction.response.send_message(embed=make_embed("Digest Updated", "Digest disabled for you."), ephemeral=True)
         return
 
-    # validate time
-    t = (time_utc or "09:00").strip()
+    # validate time (America/Chicago)
+    t = (time_chi or "09:00").strip()
     try:
         hh, mm = map(int, t.split(":"))
         assert 0 <= hh < 24 and 0 <= mm < 60
     except Exception:
-        return await interaction.response.send_message(embed=make_embed("Invalid Time", "Use HH:MM in UTC, e.g., 09:00"), ephemeral=True)
+        return await interaction.response.send_message(embed=make_embed("Invalid Time", "Use HH:MM in America/Chicago, e.g., 09:00"), ephemeral=True)
 
     set_user_pref(interaction.user.id, "digest_time", f"{hh:02d}:{mm:02d}")
     set_user_pref(interaction.user.id, "digest", mode)
 
     if mode == "weekly":
-        d = (day or "mon").lower()
-        if d not in ("mon","tue","wed","thu","fri","sat","sun"):
-            return await interaction.response.send_message(embed=make_embed("Invalid Day", "Use one of: mon tue wed thu fri sat sun"), ephemeral=True)
-        set_user_pref(interaction.user.id, "digest_day", d)
-        await interaction.response.send_message(embed=make_embed("Digest Updated", f"Weekly digest set to {t} UTC on {d}."), ephemeral=True)
+        dval = (day.value if isinstance(day, app_commands.Choice) and day is not None else "mon")
+        set_user_pref(interaction.user.id, "digest_day", dval)
+        await interaction.response.send_message(embed=make_embed("Digest Updated", f"Weekly digest set to {t} America/Chicago on {dval}."), ephemeral=True)
     else:
-        await interaction.response.send_message(embed=make_embed("Digest Updated", f"Daily digest set to {t} UTC."), ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Digest Updated", f"Daily digest set to {t} America/Chicago."), ephemeral=True)
+
+@setdigest.autocomplete("time_chi")
+async def setdigest_time_autocomplete(interaction: discord.Interaction, current: str):
+    current = (current or "").strip()
+    pool = [f"{h:02d}:{m:02d}" for h in range(24) for m in (0, 15, 30, 45)]
+    # filter by contains; Discord allows max 25 choices
+    suggestions = [t for t in pool if current in t][:25]
+    return [app_commands.Choice(name=t, value=t) for t in suggestions]
 
 # ---------- Discord lifecycle ----------
 @client.event
