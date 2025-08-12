@@ -944,12 +944,17 @@ async def help_cmd(interaction: discord.Interaction):
 @tree.command(name="myprefs", description="Show your personal notification settings")
 async def myprefs(interaction: discord.Interaction):
     p = get_user_prefs(interaction.user.id)
+    qh = p['quiet_hours']
+    if isinstance(qh, dict):
+        qh_str = f"{qh.get('start', '?')}–{qh.get('end', '?')}"
+    else:
+        qh_str = "off"
     desc = (
         f"DMs: **{'on' if p['enable_dm'] else 'off'}**\n"
         f"Reddit keywords: **{', '.join(p['reddit_keywords']) or 'ALL'}**\n"
         f"RSS keywords: **{', '.join(p['rss_keywords']) or 'ALL'}**\n"
         f"Personal flairs: **{', '.join(p['reddit_flairs']) or 'ALL'}**\n"
-        f"Quiet hours (America/Chicago): **{p['quiet_hours'] or 'off'}**\n"
+        f"Quiet hours (America/Chicago): **{qh_str}**\n"
         f"Digest: **{p['digest']}** at **{p['digest_time']}**{' on **'+p['digest_day']+'**' if p['digest']=='weekly' else ''} (America/Chicago)\n"
         f"Preferred channel: **{p['preferred_channel_id'] or 'DMs'}**\n"
         f"Personal feeds: **{len(p['feeds'])}**\n"
