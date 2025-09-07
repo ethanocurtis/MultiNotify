@@ -184,6 +184,8 @@ def get_user_prefs(uid: int):
         "watch_bypass_subs": True,       # deliver even if not in /mysubs
         "watch_bypass_flairs": True,     # deliver regardless of personal flair list
         "watch_bypass_keywords": False,  # deliver regardless of personal keywords
+        # personal watched Reddit users (no "u/")
+        "watched_users": [],
     }
     p = {**base, **user_prefs.get(uid, {})}
     p["subreddits"] = [_norm_sub(s) for s in p.get("subreddits", []) if _norm_sub(s)]
@@ -409,10 +411,19 @@ def union_user_feeds():
 def union_watch_users():
     return {u for u in WATCH_USERS if u}
 
+def union_personal_watch_users():
+    users = set()
+    for p in user_prefs.values():
+        for u in p.get("watched_users", []):
+            u = (u or "").strip().lstrip("u/")
+            if u:
+                users.add(u)
+    return users
+
 # ---------- Reddit ----------
 async def process_reddit():
     union_subs = union_user_subreddits()
-    union_authors = union_watch_users()
+    union_authors = union_watch_users() | union_personal_watch_users()
     if not union_subs and not union_authors:
         return
 
@@ -523,12 +534,19 @@ async def process_reddit():
         for post in reversed(author_posts):
             post_url = f"https://reddit.com{post.permalink}"
             flair = post.link_flair_text or "No Flair"
-            author = str(post.author) if post.author else "unknown"
-            sub_name_l = _norm_sub(post.subreddit.display_name if hasattr(post, "subreddit") else "")
+            author = (str(post.author) if post.author else "unknown").lstrip("u/")
+            sub_name_l = _norm_sub(getattr(getattr(post, "subreddit", None), "display_name", "") or "")
 
             for uid_str in list(user_prefs.keys()):
                 uid = int(uid_str)
                 p = get_user_prefs(uid)
+
+                # Only deliver to users who actually watch this author (globally or personally)
+                personal_list = set([u.strip().lstrip('u/') for u in p.get('watched_users', []) if u.strip()])
+                is_globally_watched = author in set(WATCH_USERS)
+                is_personally_watched = author in personal_list
+                if not (is_globally_watched or is_personally_watched):
+                    continue
 
                 # Subreddit bypass control
                 if not p.get("watch_bypass_subs", True):
@@ -986,6 +1004,7 @@ async def help_cmd(interaction: discord.Interaction):
         "/setquiet, /quietoff, /setchannel",
         "/myfeeds add|remove|list, /mysubs add|remove|list",
         "/setdigest off|daily|weekly [HH:MM] [day]",
+        "/mywatch add|remove|list",
         "/mywatchprefs subs:<bool> flairs:<bool> keywords:<bool>",
     ])
     await interaction.response.send_message(embed=make_embed("Help", f"**Commands:**\n{commands_text}"), ephemeral=True)
@@ -999,6 +1018,7 @@ async def myprefs(interaction: discord.Interaction):
     p = get_user_prefs(interaction.user.id)
     qh = p['quiet_hours']
     qh_str = f"{qh.get('start','?')}–{qh.get('end','?')}" if isinstance(qh, dict) else "off"
+    personal_watch = ", ".join([f"u/{u}" for u in p.get("watched_users", [])]) or "None"
     desc = (
         f"DMs: **{'on' if p['enable_dm'] else 'off'}**\n"
         f"Reddit keywords: **{', '.join(p['reddit_keywords']) or 'ALL'}**\n"
@@ -1009,6 +1029,7 @@ async def myprefs(interaction: discord.Interaction):
         f"Preferred channel: **{p['preferred_channel_id'] or 'DMs'}**\n"
         f"Personal feeds: **{len(p['feeds'])}**\n"
         f"Personal subreddits: **{len(p['subreddits'])}**\n"
+        f"Watched users (personal): **{personal_watch}**\n"
         f"Watched-user bypass — subs: **{p['watch_bypass_subs']}**, flairs: **{p['watch_bypass_flairs']}**, keywords: **{p['watch_bypass_keywords']}**"
     )
     await interaction.response.send_message(embed=make_embed("Your Preferences", desc), ephemeral=True)
@@ -1156,8 +1177,45 @@ async def mywatchprefs(interaction: discord.Interaction, subs: bool = True, flai
            f"- Subreddit filter bypass: **{subs}**\n"
            f"- Flair filter bypass: **{flairs}**\n"
            f"- Keyword filter bypass: **{keywords}**\n\n"
-           f"These apply when a globally watched user posts.")
+           f"These apply when a watched user posts.")
     await interaction.response.send_message(embed=make_embed("Watch Preferences Updated", msg), ephemeral=True)
+
+# ---- Per-user watched-user list ----
+@tree.command(name="mywatch", description="Manage your personal watched Reddit users: add/remove/list.")
+async def mywatch(interaction: discord.Interaction, action: str, username: str = ""):
+    action = (action or "").strip().lower()
+    username = (username or "").strip().lstrip("u/")
+    p = get_user_prefs(interaction.user.id)
+    lst = [u.strip().lstrip("u/") for u in p.get("watched_users", []) if u.strip()]
+
+    if action == "list":
+        text = ", ".join([f"u/{u}" for u in lst]) if lst else "You aren't watching anyone. Use `/mywatch add <username>`."
+        return await interaction.response.send_message(embed=make_embed("Your Watched Users", text), ephemeral=True)
+
+    if action == "add":
+        if not username:
+            return await interaction.response.send_message(embed=make_embed("Need Username", "Usage: `/mywatch add <username>`"), ephemeral=True)
+        if username not in lst:
+            lst.append(username)
+            set_user_pref(interaction.user.id, "watched_users", lst)
+            return await interaction.response.send_message(embed=make_embed("Added", f"Now watching **u/{username}**"), ephemeral=True)
+        else:
+            return await interaction.response.send_message(embed=make_embed("No Change", f"You already watch **u/{username}**"), ephemeral=True)
+
+    if action == "remove":
+        if not username:
+            return await interaction.response.send_message(embed=make_embed("Need Username", "Usage: `/mywatch remove <username>`"), ephemeral=True)
+        if username in lst:
+            lst.remove(username)
+            set_user_pref(interaction.user.id, "watched_users", lst)
+            return await interaction.response.send_message(embed=make_embed("Removed", f"Stopped watching **u/{username}**"), ephemeral=True)
+        else:
+            return await interaction.response.send_message(embed=make_embed("Not Found", f"**u/{username}** isn't in your list"), ephemeral=True)
+
+    return await interaction.response.send_message(
+        embed=make_embed("Invalid Action", "Use: `/mywatch add <username>`, `/mywatch remove <username>`, or `/mywatch list`"),
+        ephemeral=True
+    )
 
 # ---------- Discord lifecycle ----------
 @client.event
