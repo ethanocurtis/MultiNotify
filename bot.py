@@ -12,7 +12,6 @@ from discord import app_commands
 from datetime import datetime, time
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
-from typing import List
 
 # ========== Timezone (default CST/CDT, admin-changeable) ==========
 def _safe_zoneinfo(name: str) -> ZoneInfo:
@@ -35,7 +34,6 @@ if os.path.exists(ENV_FILE):
             if "=" in line:
                 key, value = line.strip().split("=", 1)
                 os.environ[key] = value
-    # refresh timezone if .env contained TIMEZONE
     TZ_NAME = os.environ.get("TIMEZONE", TZ_NAME)
     TZ = _safe_zoneinfo(TZ_NAME)
     print(f"[DEBUG] Loaded environment from {ENV_FILE} at startup (TZ={TZ_NAME})")
@@ -58,17 +56,15 @@ ENABLE_DM = os.environ.get("ENABLE_DM", "false").lower() == "true"
 DISCORD_USER_IDS = [u.strip() for u in os.environ.get("DISCORD_USER_IDS", "").split(",") if u.strip()]
 ADMIN_USER_IDS = [u.strip() for u in os.environ.get("ADMIN_USER_IDS", "").split(",") if u.strip()]
 
-# Separate keywords for Reddit vs RSS (legacy KEYWORDS still supported)
 LEGACY_KEYWORDS = [k.strip().lower() for k in os.environ.get("KEYWORDS", "").split(",") if k.strip()]
 REDDIT_KEYWORDS = [k.strip().lower() for k in os.environ.get("REDDIT_KEYWORDS", "").split(",") if k.strip()] or LEGACY_KEYWORDS
 RSS_KEYWORDS = [k.strip().lower() for k in os.environ.get("RSS_KEYWORDS", "").split(",") if k.strip()]
 
-# RSS feeds and channel IDs
 RSS_FEEDS = [u.strip() for u in os.environ.get("RSS_FEEDS", "").split(",") if u.strip()]
 RSS_LIMIT = int(os.environ.get("RSS_LIMIT", 10))
 DISCORD_CHANNEL_IDS = [c.strip() for c in os.environ.get("DISCORD_CHANNEL_IDS", "").split(",") if c.strip()]
 
-# NEW: global watched Reddit users (comma-separated; accept with/without "u/")
+# Global watched Reddit users (comma-separated; accept with/without "u/")
 WATCH_USERS = [u.strip().lstrip("u/") for u in os.environ.get("WATCH_USERS", "").split(",") if u.strip()]
 
 DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")
@@ -84,11 +80,10 @@ intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
-# ---------- Small persistence (data dir) ----------
+# ---------- Data dir & persistence ----------
 DATA_DIR = Path("/app/data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-# ---------- Seen store (per-destination) ----------
 SEEN_PATH = DATA_DIR / "seen.json"
 
 def _load_json(path: Path, default):
@@ -151,11 +146,11 @@ def mark_user_seen(uid: int, kind: str, item_id: str):
         _prune_list(arr)
         save_seen(_seen)
 
-# ---------- Visuals (footer-only icons) ----------
+# ---------- Visuals ----------
 REDDIT_ICON = "https://www.redditstatic.com/desktop2x/img/favicon/android-icon-192x192.png"
 RSS_ICON = "https://upload.wikimedia.org/wikipedia/commons/thumb/4/43/Feed-icon.svg/192px-Feed-icon.svg.png"
 
-# ---------- Small persistence for per-user prefs ----------
+# ---------- User prefs ----------
 PREFS_PATH = DATA_DIR / "user_prefs.json"  # { "1234567890": { ... }, ... }
 user_prefs = _load_json(PREFS_PATH, {})
 
@@ -172,27 +167,23 @@ def _norm_sub(name: str) -> str:
     return name
 
 def get_user_prefs(uid: int):
-    """Return merged view of global defaults + user overrides."""
     uid = str(uid)
     base = {
-        "enable_dm": ENABLE_DM,            # default to global for convenience
-        "reddit_keywords": [],             # empty => allow all for personal
-        "rss_keywords": [],                # empty => allow all for personal
-        "quiet_hours": None,               # {"start":"22:00","end":"07:00"} or None  (interpreted in TZ_NAME)
-        "digest": "off",                   # off | daily | weekly
-        "digest_time": "09:00",            # HH:MM in TZ_NAME
-        "digest_day": "mon",               # mon|tue|...|sun
-        "preferred_channel_id": None,      # channel to send to instead of DM
-        "reddit_flairs": [],               # optional personal flair filter; empty => allow all
-        "feeds": [],                       # personal RSS/Atom feed URLs
-        "subreddits": [],                  # personal subreddit list (names without r/)
-        # NEW: per-user behavior for watched-user alerts
-        # If True, watched-user posts bypass this user's subreddit filter
-        "watch_bypass_subs": True,
-        # If True, watched-user posts bypass this user's personal flair filter
-        "watch_bypass_flairs": True,
-        # If True, watched-user posts bypass this user's keyword filter
-        "watch_bypass_keywords": False,
+        "enable_dm": ENABLE_DM,
+        "reddit_keywords": [],
+        "rss_keywords": [],
+        "quiet_hours": None,          # {"start":"22:00","end":"07:00"} (interpreted in TZ_NAME)
+        "digest": "off",              # off | daily | weekly
+        "digest_time": "09:00",       # HH:MM in TZ_NAME
+        "digest_day": "mon",          # mon..sun
+        "preferred_channel_id": None,
+        "reddit_flairs": [],
+        "feeds": [],
+        "subreddits": [],
+        # per-user behavior for watched-user alerts
+        "watch_bypass_subs": True,       # deliver even if not in /mysubs
+        "watch_bypass_flairs": True,     # deliver regardless of personal flair list
+        "watch_bypass_keywords": False,  # deliver regardless of personal keywords
     }
     p = {**base, **user_prefs.get(uid, {})}
     p["subreddits"] = [_norm_sub(s) for s in p.get("subreddits", []) if _norm_sub(s)]
@@ -210,7 +201,6 @@ def set_user_pref(uid: int, key: str, value):
     save_prefs()
 
 def is_quiet_now(uid: int):
-    """Quiet hours apply ONLY to personal deliveries (global DM list ignores this). Interpreted in active TZ_NAME."""
     q = get_user_prefs(uid).get("quiet_hours")
     if not q:
         return False
@@ -270,16 +260,14 @@ def should_send_digest(uid: int) -> bool:
     mode = p.get("digest","off")
     if mode == "off":
         return False
-
     hh, mm = (p.get("digest_time","09:00") or "09:00").split(":")
     hh, mm = int(hh), int(mm)
     now = now_local()
     due_today = (now.hour == hh and now.minute >= mm)
-
     meta = _load_digest_meta()
     rec = meta.get(str(uid), {})
     if mode == "daily":
-        last = rec.get("daily_last", "")  # "YYYY-MM-DD" in current TZ
+        last = rec.get("daily_last", "")
         today = now.strftime("%Y-%m-%d")
         return due_today and last != today
     if mode == "weekly":
@@ -325,7 +313,6 @@ def update_env_var(key, value):
         f.writelines(lines)
 
 def make_embed(title, description, color=discord.Color.blue(), url=None):
-    # Timestamp shown in current TZ for readability
     embed = discord.Embed(title=title, description=description, color=color, timestamp=now_local())
     if url:
         embed.url = url
@@ -393,7 +380,6 @@ async def notify_channels(title, url, description, color, source_type):
             print(f"[ERROR] Failed to send to channel {cid}: {e}")
 
 async def notify_dms(message: str):
-    """GLOBAL DM LIST: this intentionally ignores quiet hours."""
     if not (ENABLE_DM and DISCORD_USER_IDS):
         return
     for uid in DISCORD_USER_IDS:
@@ -403,7 +389,7 @@ async def notify_dms(message: str):
         except Exception as e:
             print(f"[ERROR] Failed to DM {uid}: {e}")
 
-# ---------- Helpers to compute unions ----------
+# ---------- Unions ----------
 def union_user_subreddits():
     subs = {_norm_sub(SUBREDDIT)} if SUBREDDIT and _norm_sub(SUBREDDIT) else set()
     for p in user_prefs.values():
@@ -421,32 +407,25 @@ def union_user_feeds():
     return feeds
 
 def union_watch_users():
-    # global list only (you can later add per-user author lists if desired)
     return {u for u in WATCH_USERS if u}
 
 # ---------- Reddit ----------
 async def process_reddit():
-    # Build union of subreddits to fetch for PERSONAL pipeline
     union_subs = union_user_subreddits()
-    # Build union of watched users (authors)
     union_authors = union_watch_users()
-
     if not union_subs and not union_authors:
         return
 
-    global_posts = []    # from the configured global SUBREDDIT with global filters
-    personal_posts = []  # (post, sub_name)
-    author_posts  = []   # posts gathered from watched users
+    global_posts = []
+    personal_posts = []
+    author_posts  = []
 
     # Subreddit-based collection
     for sub_name in union_subs:
         try:
             sr = reddit.subreddit(sub_name)
             for submission in sr.new(limit=POST_LIMIT):
-                # Collect for personal route
                 personal_posts.append((submission, sub_name))
-
-                # Global route only if SUBREDDIT is set and matches
                 if SUBREDDIT and sub_name == _norm_sub(SUBREDDIT):
                     flair_ok = (not ALLOWED_FLAIRS) or (submission.link_flair_text in ALLOWED_FLAIRS)
                     kw_ok = matches_keywords_post(submission, REDDIT_KEYWORDS)
@@ -455,7 +434,7 @@ async def process_reddit():
         except Exception as e:
             print(f"[ERROR] Fetch subreddit r/{sub_name}: {e}")
 
-    # Author-based collection (watch specific users, across all subs)
+    # Author-based collection
     for username in union_authors:
         try:
             redditor = reddit.redditor(username)
@@ -472,14 +451,9 @@ async def process_reddit():
             flair = post.link_flair_text if post.link_flair_text else "No Flair"
             post_url = f"https://reddit.com{post.permalink}"
             description = f"Subreddit: r/{_norm_sub(SUBREDDIT)}\nFlair: **{flair}**\nAuthor: u/{post.author}"
-
             await send_webhook_embed(post.title, post_url, description, color=discord.Color.orange(), source_type="reddit")
             await notify_channels(post.title, post_url, description, color=discord.Color.orange(), source_type="reddit")
-
-            # Mark global seen
             mark_global_seen("reddit", post.id)
-
-            # Global DM list — deliberately IGNORE quiet hours
             if ENABLE_DM and DISCORD_USER_IDS:
                 dm_text = f"[Reddit] r/{_norm_sub(SUBREDDIT)} • Flair: {flair} • u/{post.author}\n{post.title}\n{post_url}"
                 await notify_dms(dm_text)
@@ -490,38 +464,29 @@ async def process_reddit():
             post_url = f"https://reddit.com{post.permalink}"
             flair = post.link_flair_text or "No Flair"
             sub_name_l = _norm_sub(sub_name)
-
             for uid_str in list(user_prefs.keys()):
                 uid = int(uid_str)
                 p = get_user_prefs(uid)
 
-                # Determine which subreddits this user wants:
                 user_subs = p.get("subreddits", [])
                 if user_subs:
                     if sub_name_l not in set(user_subs):
                         continue
                 else:
-                    # If user hasn't set subs and SUBREDDIT cleared, skip personal delivery
                     if not SUBREDDIT or sub_name_l != _norm_sub(SUBREDDIT):
                         continue
 
-                # Personal matching: keywords/flairs (optional). If none set → allow all.
                 p_keywords = p.get("reddit_keywords", [])
                 if p_keywords and not matches_keywords_post(post, p_keywords):
                     continue
                 p_flairs = p.get("reddit_flairs", [])
                 if p_flairs and flair not in p_flairs:
                     continue
-
-                # Quiet hours apply ONLY to personal route
                 if is_quiet_now(uid):
                     continue
-
-                # Per-user seen check
                 if post.id in get_user_seen(uid, "reddit"):
                     continue
 
-                # Digest path
                 if p.get("digest","off") != "off":
                     queue_digest_item(uid, {
                         "type": "reddit",
@@ -535,7 +500,6 @@ async def process_reddit():
                     mark_user_seen(uid, "reddit", post.id)
                     continue
 
-                # Immediate delivery
                 try:
                     embed = build_source_embed(
                         post.title,
@@ -555,8 +519,6 @@ async def process_reddit():
                     print(f"[ERROR] Personal delivery to {uid}: {e}")
 
     # ---------- PERSONAL DELIVERY (author-based watches) ----------
-    # Watched-user alerts: each user can choose whether these alerts bypass their
-    # subreddit/flair/keyword filters via /mywatchprefs.
     if user_prefs and author_posts:
         for post in reversed(author_posts):
             post_url = f"https://reddit.com{post.permalink}"
@@ -568,19 +530,17 @@ async def process_reddit():
                 uid = int(uid_str)
                 p = get_user_prefs(uid)
 
-                # --- Subreddit filter (bypass if user opted to) ---
+                # Subreddit bypass control
                 if not p.get("watch_bypass_subs", True):
                     user_subs = p.get("subreddits", [])
                     if user_subs and sub_name_l and sub_name_l not in set(user_subs):
                         continue
-
-                # --- Flair filter (bypass if user opted to) ---
+                # Flair bypass control
                 if not p.get("watch_bypass_flairs", True):
                     p_flairs = p.get("reddit_flairs", [])
                     if p_flairs and flair not in p_flairs:
                         continue
-
-                # --- Keywords (bypass if user opted to) ---
+                # Keywords bypass control
                 if not p.get("watch_bypass_keywords", False):
                     p_keywords = p.get("reddit_keywords", [])
                     if p_keywords and not matches_keywords_post(post, p_keywords):
@@ -588,11 +548,9 @@ async def process_reddit():
 
                 if is_quiet_now(uid):
                     continue
-
                 if post.id in get_user_seen(uid, "reddit"):
                     continue
 
-                # Queue to digest or send now
                 if p.get("digest","off") != "off":
                     queue_digest_item(uid, {
                         "type": "reddit",
@@ -621,19 +579,17 @@ async def process_reddit():
 
 # ---------- RSS ----------
 async def process_rss():
-    # Build union of feeds for PERSONAL fetch; global still uses RSS_FEEDS for global pipeline
-    feeds_union = union_user_feeds()
+    feeds_union = set(RSS_FEEDS) | set().union(*[set(p.get("feeds", [])) for p in user_prefs.values()]) if user_prefs else set(RSS_FEEDS)
     if not feeds_union:
         feeds_union = set(RSS_FEEDS)
 
-    global_items = []    # pass global RSS keywords from GLOBAL feeds
-    personal_items = []  # items from ANY union feed
+    global_items = []
+    personal_items = []
 
     for feed_url in feeds_union:
         try:
             parsed = feedparser.parse(feed_url)
             feed_title = parsed.feed.get("title", domain_from_url(feed_url)) if hasattr(parsed, "feed") else domain_from_url(feed_url)
-
             count = 0
             for entry in parsed.entries:
                 if count >= RSS_LIMIT:
@@ -641,13 +597,11 @@ async def process_rss():
                 entry_id = entry.get("id") or entry.get("link") or f"{entry.get('title','')}-{entry.get('published','')}"
                 if not entry_id:
                     continue
-
                 title = entry.get("title", "Untitled")
                 link = entry.get("link", feed_url)
                 summary = entry.get("summary", "") or entry.get("description", "")
                 text_for_match = f"{title}\n{summary}"
 
-                # Always consider for personal route (store feed_url)
                 personal_items.append({
                     "feed_title": feed_title,
                     "title": title,
@@ -656,8 +610,6 @@ async def process_rss():
                     "id": entry_id,
                     "feed_url": feed_url
                 })
-
-                # Global route uses global RSS_KEYWORDS but only for global feeds
                 if feed_url in RSS_FEEDS and matches_keywords_text(text_for_match, RSS_KEYWORDS):
                     global_items.append({
                         "feed_title": feed_title,
@@ -667,13 +619,11 @@ async def process_rss():
                         "id": entry_id,
                         "feed_url": feed_url
                     })
-
                 count += 1
-
         except Exception as e:
             print(f"[ERROR] Failed to parse RSS feed {feed_url}: {e}")
 
-    # ---------- GLOBAL DELIVERY ----------
+    # GLOBAL DELIVERY
     for item in reversed(global_items):
         if item["id"] in get_global_seen("rss"):
             continue
@@ -684,21 +634,15 @@ async def process_rss():
         clean_summary = re.sub(r"<[^>]+>", "", summary)
         if len(clean_summary) > 500:
             clean_summary = clean_summary[:497] + "..."
-
         description = f"Feed: **{feed_title}**\nSource: {domain_from_url(link)}\n\n{clean_summary}"
-
         await send_webhook_embed(title, link, description, color=discord.Color.blurple(), source_type="rss")
         await notify_channels(title, link, description, color=discord.Color.blurple(), source_type="rss")
-
-        # Mark global seen
         mark_global_seen("rss", item["id"])
-
-        # Global DM list — deliberately IGNORE quiet hours
         if ENABLE_DM and DISCORD_USER_IDS:
             dm_text = f"[RSS] {feed_title}\n{title}\n{link}"
             await notify_dms(dm_text)
 
-    # ---------- PERSONAL DELIVERY ----------
+    # PERSONAL DELIVERY
     if user_prefs:
         for item in reversed(personal_items):
             feed_title = item["feed_title"]
@@ -709,31 +653,22 @@ async def process_rss():
             if len(clean_summary) > 500:
                 clean_summary = clean_summary[:497] + "..."
             description = f"Feed: **{feed_title}**\nSource: {domain_from_url(link)}\n\n{clean_summary}"
-
             text_for_match = f"{title}\n{summary}"
             feed_url = item["feed_url"]
 
             for uid_str in list(user_prefs.keys()):
                 uid = int(uid_str)
                 p = get_user_prefs(uid)
-
-                # User must be subscribed to the feed to receive personal delivery
                 user_feeds = [u.strip() for u in p.get("feeds", []) if u.strip()]
                 if user_feeds and feed_url not in user_feeds:
                     continue
                 if not user_feeds:
-                    # If they haven't added any feeds, don't deliver personal RSS to avoid spam
                     continue
-
-                # Personal keywords for RSS (empty => allow all)
                 p_rss_kw = p.get("rss_keywords", [])
                 if p_rss_kw and not matches_keywords_text(text_for_match, p_rss_kw):
                     continue
-
                 if is_quiet_now(uid):
                     continue
-
-                # Per-user seen check
                 if item["id"] in get_user_seen(uid, "rss"):
                     continue
 
@@ -768,12 +703,10 @@ async def fetch_and_notify():
             await process_reddit()
         except Exception as e:
             print(f"[ERROR] Reddit fetch failed: {e}")
-
         try:
             await process_rss()
         except Exception as e:
             print(f"[ERROR] RSS fetch failed: {e}")
-
         await asyncio.sleep(CHECK_INTERVAL)
 
 async def digest_scheduler():
@@ -787,13 +720,11 @@ async def digest_scheduler():
                     continue
                 if not should_send_digest(uid):
                     continue
-
                 items = pop_all_digest_items(uid)
                 if not items:
                     mark_digest_sent(uid)
                     continue
 
-                # Destination
                 dest_channel_id = p.get("preferred_channel_id")
                 dest_user = None
                 dest_channel = None
@@ -803,10 +734,9 @@ async def digest_scheduler():
                     else:
                         dest_user = await client.fetch_user(uid)
                 except Exception as e:
-                    print(f"[ERROR] Resolving destination for {uid}: {e}")
+                    print(f"[ERROR] Resolving destination for {uid}: {e})
                     continue
 
-                # Build chunks
                 def format_line(it):
                     if it.get("type") == "reddit":
                         sub = it.get("subreddit","?")
@@ -824,7 +754,6 @@ async def digest_scheduler():
                     title = "Your Daily Digest" if p.get("digest") == "daily" else f"Your Weekly Digest ({p.get('digest_day').capitalize()})"
                     title = f"{title} — Part {idx}/{len(chunks)}" if len(chunks) > 1 else title
                     embed = make_embed(title, desc, discord.Color.gold())
-
                     try:
                         if dest_channel:
                             await dest_channel.send(embed=embed)
@@ -832,11 +761,9 @@ async def digest_scheduler():
                             await dest_user.send(embed=embed)
                     except Exception as e:
                         print(f"[ERROR] Sending digest to {uid}: {e}")
-
                 mark_digest_sent(uid)
         except Exception as e:
             print(f"[ERROR] digest_scheduler: {e}")
-
         await asyncio.sleep(60)
 
 # ---------- Auth ----------
@@ -844,7 +771,7 @@ def is_admin(interaction: discord.Interaction):
     return str(interaction.user.id) in ADMIN_USER_IDS
 
 # ---------- Admin Commands (GLOBAL) ----------
-@tree.command(name="setsubreddit", description="Set subreddit to monitor (blank to clear). Affects global pipeline.")
+@tree.command(name="setsubreddit", description="Set subreddit to monitor (blank to clear).")
 async def setsubreddit(interaction: discord.Interaction, name: str = ""):
     if not is_admin(interaction):
         return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True)
@@ -855,7 +782,7 @@ async def setsubreddit(interaction: discord.Interaction, name: str = ""):
         return await interaction.response.send_message(embed=make_embed("Subreddit Cleared", "No subreddit is currently being monitored."), ephemeral=True)
     SUBREDDIT = _norm_sub(name.strip())
     update_env_var("SUBREDDIT", SUBREDDIT)
-    await interaction.response.send_message(embed=make_embed("Subreddit Updated", f"Now monitoring r/{SUBREDDIT}", discord.Color.green()), ephemeral=True)
+    await interaction.response.send_message(embed=make_embed("Subreddit Updated", f"Now monitoring r/{SUBREDDIT}"), ephemeral=True)
 
 @tree.command(name="setinterval", description="Set polling interval in seconds for all sources.")
 async def setinterval(interaction: discord.Interaction, seconds: int):
@@ -864,16 +791,16 @@ async def setinterval(interaction: discord.Interaction, seconds: int):
     global CHECK_INTERVAL
     CHECK_INTERVAL = seconds
     update_env_var("CHECK_INTERVAL", str(seconds))
-    await interaction.response.send_message(embed=make_embed("Interval Updated", f"Now checking every {seconds} seconds", discord.Color.green()), ephemeral=True)
+    await interaction.response.send_message(embed=make_embed("Interval Updated", f"Now checking every {seconds} seconds"), ephemeral=True)
 
-@tree.command(name="setpostlimit", description="Set number of new items fetched per subreddit/user/feed poll.")
+@tree.command(name="setpostlimit", description="Set number of new items fetched per source per poll.")
 async def setpostlimit(interaction: discord.Interaction, number: int):
     if not is_admin(interaction):
         return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True)
     global POST_LIMIT
     POST_LIMIT = number
     update_env_var("POST_LIMIT", str(number))
-    await interaction.response.send_message(embed=make_embed("Post Limit Updated", f"Now checking {number} items per source", discord.Color.green()), ephemeral=True)
+    await interaction.response.send_message(embed=make_embed("Post Limit Updated", f"Now checking {number} items"), ephemeral=True)
 
 @tree.command(name="setwebhook", description="Set Discord webhook URL for global posts (blank to clear).")
 async def setwebhook(interaction: discord.Interaction, url: str = ""):
@@ -883,9 +810,9 @@ async def setwebhook(interaction: discord.Interaction, url: str = ""):
     WEBHOOK_URL = url.strip()
     update_env_var("DISCORD_WEBHOOK_URL", WEBHOOK_URL)
     shown = WEBHOOK_URL if WEBHOOK_URL else "None"
-    await interaction.response.send_message(embed=make_embed("Webhook Updated", f"Webhook URL set to: `{shown}`", discord.Color.green()), ephemeral=True)
+    await interaction.response.send_message(embed=make_embed("Webhook Updated", f"Webhook URL set to: `{shown}`"), ephemeral=True)
 
-@tree.command(name="setflairs", description="Set allowed flairs for the global subreddit pipeline (comma separated, blank to allow all).")
+@tree.command(name="setflairs", description="Set allowed flairs for the global subreddit pipeline.")
 async def setflairs(interaction: discord.Interaction, flairs: str = ""):
     if not is_admin(interaction):
         return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True)
@@ -893,22 +820,22 @@ async def setflairs(interaction: discord.Interaction, flairs: str = ""):
     if not flairs.strip():
         ALLOWED_FLAIRS = []
         update_env_var("ALLOWED_FLAIR", "")
-        return await interaction.response.send_message(embed=make_embed("Flairs Cleared", "No global flair filter — all flairs allowed."), ephemeral=True)
+        return await interaction.response.send_message(embed=make_embed("Flairs Cleared", "All flairs allowed."), ephemeral=True)
     ALLOWED_FLAIRS = [f.strip() for f in flairs.split(",") if f.strip()]
     update_env_var("ALLOWED_FLAIR", ",".join(ALLOWED_FLAIRS))
     text = ", ".join(ALLOWED_FLAIRS)
     await interaction.response.send_message(embed=make_embed("Flairs Updated", f"Global flair filter: {text}"), ephemeral=True)
 
-@tree.command(name="enabledms", description="Enable/disable global DM fanout for the global pipeline.")
+@tree.command(name="enabledms", description="Enable/disable global DM fanout.")
 async def enabledms(interaction: discord.Interaction, value: bool):
     if not is_admin(interaction):
         return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True)
     global ENABLE_DM
     ENABLE_DM = value
     update_env_var("ENABLE_DM", str(value).lower())
-    await interaction.response.send_message(embed=make_embed("DM Setting Updated", f"DMs {'enabled' if value else 'disabled'} (global)"), ephemeral=True)
+    await interaction.response.send_message(embed=make_embed("DM Setting Updated", f"DMs {'enabled' if value else 'disabled'}"), ephemeral=True)
 
-@tree.command(name="adddmuser", description="Add a Discord user ID to the global DM fanout list.")
+@tree.command(name="adddmuser", description="Add a Discord user ID to the global DM list.")
 async def adddmuser(interaction: discord.Interaction, user_id: str):
     if not is_admin(interaction):
         return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True)
@@ -917,7 +844,7 @@ async def adddmuser(interaction: discord.Interaction, user_id: str):
         update_env_var("DISCORD_USER_IDS", ",".join(DISCORD_USER_IDS))
     await interaction.response.send_message(embed=make_embed("DM User Added", f"Added user ID: {user_id}"), ephemeral=True)
 
-@tree.command(name="removedmuser", description="Remove a Discord user ID from the global DM fanout list.")
+@tree.command(name="removedmuser", description="Remove a Discord user ID from the global DM list.")
 async def removedmuser(interaction: discord.Interaction, user_id: str):
     if not is_admin(interaction):
         return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True)
@@ -926,7 +853,7 @@ async def removedmuser(interaction: discord.Interaction, user_id: str):
         update_env_var("DISCORD_USER_IDS", ",".join(DISCORD_USER_IDS))
     await interaction.response.send_message(embed=make_embed("DM User Removed", f"Removed user ID: {user_id}"), ephemeral=True)
 
-@tree.command(name="settimezone", description="Set the bot's DEFAULT timezone (IANA name, e.g., America/Chicago). Affects quiet hours & digests.")
+@tree.command(name="settimezone", description="Set the bot's DEFAULT timezone (IANA name).")
 async def settimezone(interaction: discord.Interaction, tz: str):
     if not is_admin(interaction):
         return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True)
@@ -937,7 +864,7 @@ async def settimezone(interaction: discord.Interaction, tz: str):
     update_env_var("TIMEZONE", TZ_NAME)
     await interaction.response.send_message(embed=make_embed("Timezone Updated", f"Default timezone is now **{TZ_NAME}**"), ephemeral=True)
 
-@tree.command(name="adduserwatch", description="(Global) Add a Reddit username to watch across ALL subreddits.")
+@tree.command(name="adduserwatch", description="(Admin) Add a Reddit username to the global watch list.")
 async def adduserwatch(interaction: discord.Interaction, username: str):
     if not is_admin(interaction):
         return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True)
@@ -946,9 +873,9 @@ async def adduserwatch(interaction: discord.Interaction, username: str):
     if username and username not in WATCH_USERS:
         WATCH_USERS.append(username)
         update_env_var("WATCH_USERS", ",".join(WATCH_USERS))
-    await interaction.response.send_message(embed=make_embed("User Watch Added", f"Now watching posts by **u/{username}** (delivered via personal pipeline)"), ephemeral=True)
+    await interaction.response.send_message(embed=make_embed("User Watch Added", f"Now watching **u/{username}**"), ephemeral=True)
 
-@tree.command(name="removeuserwatch", description="(Global) Remove a watched Reddit username.")
+@tree.command(name="removeuserwatch", description="(Admin) Remove a Reddit username from the global watch list.")
 async def removeuserwatch(interaction: discord.Interaction, username: str):
     if not is_admin(interaction):
         return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True)
@@ -959,61 +886,60 @@ async def removeuserwatch(interaction: discord.Interaction, username: str):
         update_env_var("WATCH_USERS", ",".join(WATCH_USERS))
     await interaction.response.send_message(embed=make_embed("User Watch Removed", f"Stopped watching **u/{username}**"), ephemeral=True)
 
-@tree.command(name="listuserwatches", description="(Global) List all watched Reddit usernames.")
+@tree.command(name="listuserwatches", description="(Admin) List all globally watched Reddit usernames.")
 async def listuserwatches(interaction: discord.Interaction):
     if not is_admin(interaction):
         return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True)
     users = ", ".join([f"u/{u}" for u in WATCH_USERS]) if WATCH_USERS else "None"
-    await interaction.response.send_message(embed=make_embed("Watched Users (Global)", users), ephemeral=True)
+    await interaction.response.send_message(embed=make_embed("Watched Users", users), ephemeral=True)
 
-@tree.command(name="reloadenv", description="Restart the process to reload updated .env values.")
+@tree.command(name="reloadenv", description="Restart process to reload .env values.")
 async def reloadenv(interaction: discord.Interaction):
     if not is_admin(interaction):
         return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True)
-    await interaction.response.send_message(embed=make_embed("Reloading", "Restarting process to reload environment..."), ephemeral=True)
+    await interaction.response.send_message(embed=make_embed("Reloading", "Restarting process..."), ephemeral=True)
     os.execv(sys.executable, [sys.executable, __file__])
 
-@tree.command(name="whereenv", description="Show the path to the .env file the bot loads.")
+@tree.command(name="whereenv", description="Show path to the .env file.")
 async def whereenv(interaction: discord.Interaction):
     await interaction.response.send_message(embed=make_embed("Environment File", f"`{ENV_FILE}`"), ephemeral=True)
 
 # ---------- Keyword commands (GLOBAL) ----------
-@tree.command(name="setredditkeywords", description="Set/clear GLOBAL Reddit keywords (comma separated). Blank to allow all.")
+@tree.command(name="setredditkeywords", description="Set/clear GLOBAL Reddit keywords (comma separated).")
 async def setredditkeywords(interaction: discord.Interaction, words: str = ""):
     if not is_admin(interaction):
-        return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized to use this command.", discord.Color.red()), ephemeral=True)
+        return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized.", discord.Color.red()), ephemeral=True)
     global REDDIT_KEYWORDS
     REDDIT_KEYWORDS = [w.strip().lower() for w in words.split(",") if w.strip()] if words else []
     update_env_var("REDDIT_KEYWORDS", ",".join(REDDIT_KEYWORDS))
     if REDDIT_KEYWORDS:
-        await interaction.response.send_message(embed=make_embed("Reddit Keywords Updated", f"Filtering Reddit by: {', '.join(REDDIT_KEYWORDS)}"), ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Reddit Keywords Updated", f"Filtering by: {', '.join(REDDIT_KEYWORDS)}"), ephemeral=True)
     else:
-        await interaction.response.send_message(embed=make_embed("Reddit Keywords Cleared", "No keywords set. ALL Reddit posts will be considered."), ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Reddit Keywords Cleared", "No keywords set (ALL)."), ephemeral=True)
 
-@tree.command(name="setrsskeywords", description="Set/clear GLOBAL RSS keywords (comma separated). Blank to allow all.")
+@tree.command(name="setrsskeywords", description="Set/clear GLOBAL RSS keywords (comma separated).")
 async def setrsskeywords(interaction: discord.Interaction, words: str = ""):
     if not is_admin(interaction):
-        return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized to use this command.", discord.Color.red()), ephemeral=True)
+        return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized.", discord.Color.red()), ephemeral=True)
     global RSS_KEYWORDS
     RSS_KEYWORDS = [w.strip().lower() for w in words.split(",") if w.strip()] if words else []
     update_env_var("RSS_KEYWORDS", ",".join(RSS_KEYWORDS))
     if RSS_KEYWORDS:
-        await interaction.response.send_message(embed=make_embed("RSS Keywords Updated", f"Filtering RSS by: {', '.join(RSS_KEYWORDS)}"), ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("RSS Keywords Updated", f"Filtering by: {', '.join(RSS_KEYWORDS)}"), ephemeral=True)
     else:
-        await interaction.response.send_message(embed=make_embed("RSS Keywords Cleared", "No keywords set. ALL RSS items will be considered."), ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("RSS Keywords Cleared", "No keywords set (ALL)."), ephemeral=True)
 
-# Legacy: set BOTH lists at once
 @tree.command(name="setkeywords", description="(Legacy) Set/clear GLOBAL keywords for BOTH Reddit and RSS.")
 async def setkeywords(interaction: discord.Interaction, words: str = ""):
     if not is_admin(interaction):
-        return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized to use this command.", discord.Color.red()), ephemeral=True)
+        return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized.", discord.Color.red()), ephemeral=True)
     global REDDIT_KEYWORDS, RSS_KEYWORDS
     new_list = [w.strip().lower() for w in words.split(",") if w.strip()] if words else []
     REDDIT_KEYWORDS = new_list[:]
     RSS_KEYWORDS = new_list[:]
     update_env_var("REDDIT_KEYWORDS", ",".join(REDDIT_KEYWORDS))
     update_env_var("RSS_KEYWORDS", ",".join(RSS_KEYWORDS))
-    update_env_var("KEYWORDS", ",".join(new_list))  # keep legacy env in sync
+    update_env_var("KEYWORDS", ",".join(new_list))
     label = ", ".join(new_list) if new_list else "ALL"
     await interaction.response.send_message(embed=make_embed("Keywords Updated (Legacy)", f"Reddit & RSS now filter by: {label}"), ephemeral=True)
 
@@ -1033,7 +959,7 @@ async def status(interaction: discord.Interaction):
     msg = (
         f"Monitoring: **{sub_text}** every **{CHECK_INTERVAL}s**.\n"
         f"Reddit Post limit: **{POST_LIMIT}**.\n"
-        f"Flairs (GLOBAL pipeline): **{flair_list}**.\n"
+        f"Flairs (GLOBAL): **{flair_list}**.\n"
         f"Reddit Keywords (GLOBAL): **{reddit_kw}**.\n"
         f"RSS Keywords (GLOBAL): **{rss_kw}**.\n"
         f"DMs (GLOBAL): **{dm_status}** (Users: {dm_users}).\n"
@@ -1045,51 +971,34 @@ async def status(interaction: discord.Interaction):
     )
     await interaction.response.send_message(embed=make_embed("Bot Status", msg), ephemeral=True)
 
-@tree.command(name="help", description="Show help for all commands with clarifying descriptions.")
+@tree.command(name="help", description="Show help for all commands.")
 async def help_cmd(interaction: discord.Interaction):
     commands_text = "\n".join([
-        "Admin (global):",
-        "/setsubreddit <name or blank> — set/clear the global subreddit for channel/webhook fanout",
-        "/setinterval <seconds> — polling frequency for all sources",
-        "/setpostlimit <number> — items fetched per source per poll",
-        "/setwebhook <url or blank> — channel/webhook for global pipeline",
-        "/setflairs [csv] — global flair filter for the global subreddit pipeline",
-        "/setredditkeywords [csv] — global keywords for subreddit pipeline",
-        "/setrsskeywords [csv] — global keywords for RSS pipeline",
-        "/setkeywords [csv] — legacy: set both global keyword lists",
-        "/enabledms <true/false> — toggle global DM fanout",
-        "/adddmuser <user_id> / removedmuser <user_id>",
-        "/adduserwatch <username> / removeuserwatch <username> / listuserwatches",
-        "/settimezone <IANA> — set default timezone for quiet hours & digests",
-        "/status / reloadenv / whereenv",
+        "Admin:",
+        "/setsubreddit, /setinterval, /setpostlimit",
+        "/setwebhook, /setflairs, /setredditkeywords, /setrsskeywords, /setkeywords",
+        "/enabledms, /adddmuser, /removedmuser",
+        "/adduserwatch, /removeuserwatch, /listuserwatches",
+        "/settimezone, /status, /reloadenv, /whereenv",
         "",
-        "Personal (any user):",
-        "/myprefs — show your settings",
-        "/setmydms <true/false> — send your alerts via DM or not",
-        "/setmykeywords reddit:<csv> rss:<csv> — personal keyword filters",
-        "/setmyflairs [csv] — personal flair whitelist",
-        "/setquiet <start HH:MM> <end HH:MM> — quiet hours (uses bot timezone)",
-        "/quietoff — disable your quiet hours",
-        "/setchannel <channel_id or blank> — deliver to a channel instead of DM",
-        "/myfeeds add <url> | remove <url> | list — manage personal RSS feeds",
-        "/mysubs add <subreddit> | remove <subreddit> | list — manage personal subreddits",
-        "/setdigest <off|daily|weekly> [HH:MM] [day] — personal digest schedule",
-        "/mywatchprefs subs:<true/false> flairs:<true/false> keywords:<true/false> — control how watched-user alerts interact with your filters",
+        "Personal:",
+        "/myprefs, /setmydms, /setmykeywords, /setmyflairs",
+        "/setquiet, /quietoff, /setchannel",
+        "/myfeeds add|remove|list, /mysubs add|remove|list",
+        "/setdigest off|daily|weekly [HH:MM] [day]",
+        "/mywatchprefs subs:<bool> flairs:<bool> keywords:<bool>",
     ])
-    await interaction.response.send_message(embed=make_embed("Help", f"**Available Commands:**\n{commands_text}"), ephemeral=True)
+    await interaction.response.send_message(embed=make_embed("Help", f"**Commands:**\n{commands_text}"), ephemeral=True)
 
-# ---------- Personal commands (ANY USER) ----------
+# ---------- Personal commands ----------
 @tree.command(
     name="myprefs",
-    description="Show your personal settings (DMs, keywords, flairs, quiet hours, digest, delivery, and watched-user bypass behavior)."
+    description="Show your personal settings and watch-bypass prefs."
 )
 async def myprefs(interaction: discord.Interaction):
     p = get_user_prefs(interaction.user.id)
     qh = p['quiet_hours']
-    if isinstance(qh, dict):
-        qh_str = f"{qh.get('start', '?')}–{qh.get('end', '?')}"
-    else:
-        qh_str = "off"
+    qh_str = f"{qh.get('start','?')}–{qh.get('end','?')}" if isinstance(qh, dict) else "off"
     desc = (
         f"DMs: **{'on' if p['enable_dm'] else 'off'}**\n"
         f"Reddit keywords: **{', '.join(p['reddit_keywords']) or 'ALL'}**\n"
@@ -1104,13 +1013,10 @@ async def myprefs(interaction: discord.Interaction):
     )
     await interaction.response.send_message(embed=make_embed("Your Preferences", desc), ephemeral=True)
 
-@tree.command(name="setmydms", description="Enable or disable your personal DMs for deliveries.")
+@tree.command(name="setmydms", description="Enable or disable your personal DMs.")
 async def setmydms(interaction: discord.Interaction, value: bool):
     set_user_pref(interaction.user.id, "enable_dm", value)
-    await interaction.response.send_message(
-        embed=make_embed("Updated", f"DMs {'enabled' if value else 'disabled'} for you"),
-        ephemeral=True
-    )
+    await interaction.response.send_message(embed=make_embed("Updated", f"DMs {'enabled' if value else 'disabled'} for you"), ephemeral=True)
 
 @tree.command(name="setmykeywords", description="Set your personal keywords. Example: reddit:docker,proxmox rss:self-hosted")
 async def setmykeywords(interaction: discord.Interaction, reddit: str = "", rss: str = ""):
@@ -1126,22 +1032,16 @@ async def setmykeywords(interaction: discord.Interaction, reddit: str = "", rss:
     label = ", ".join(changed) if changed else "none"
     await interaction.response.send_message(embed=make_embed("Updated", f"Personal keywords saved ({label})."), ephemeral=True)
 
-@tree.command(name="setmyflairs", description="Set your personal allowed Reddit flairs (comma separated). Blank to allow all flairs.")
+@tree.command(name="setmyflairs", description="Set your personal allowed Reddit flairs (comma separated).")
 async def setmyflairs(interaction: discord.Interaction, flairs: str = ""):
     flair_list = [f.strip() for f in (flairs or "").split(",") if f.strip()] if flairs else []
     set_user_pref(interaction.user.id, "reddit_flairs", flair_list)
     if flair_list:
-        await interaction.response.send_message(
-            embed=make_embed("Personal Flairs Updated", f"Now filtering Reddit by: {', '.join(flair_list)}"),
-            ephemeral=True
-        )
+        await interaction.response.send_message(embed=make_embed("Personal Flairs Updated", f"Now filtering by: {', '.join(flair_list)}"), ephemeral=True)
     else:
-        await interaction.response.send_message(
-            embed=make_embed("Personal Flairs Cleared", "No flair filter set — ALL flairs allowed for you."),
-            ephemeral=True
-        )
+        await interaction.response.send_message(embed=make_embed("Personal Flairs Cleared", "All flairs allowed for you."), ephemeral=True)
 
-@tree.command(name="setquiet", description="Set your quiet hours (start, end) using the current bot timezone.")
+@tree.command(name="setquiet", description="Set your quiet hours using the bot timezone.")
 async def setquiet(interaction: discord.Interaction, start: str, end: str):
     set_user_pref(interaction.user.id, "quiet_hours", {"start": start, "end": end})
     await interaction.response.send_message(embed=make_embed("Updated", f"Quiet hours set: {start}–{end} ({TZ_NAME})"), ephemeral=True)
@@ -1151,7 +1051,7 @@ async def quietoff(interaction: discord.Interaction):
     set_user_pref(interaction.user.id, "quiet_hours", None)
     await interaction.response.send_message(embed=make_embed("Updated", "Quiet hours disabled."), ephemeral=True)
 
-@tree.command(name="setchannel", description="Send your notifications to a specific channel instead of DMs (blank to revert to DMs).")
+@tree.command(name="setchannel", description="Send your notifications to a channel instead of DMs.")
 async def setchannel(interaction: discord.Interaction, channel_id: str = ""):
     set_user_pref(interaction.user.id, "preferred_channel_id", channel_id or None)
     where = f"channel {channel_id}" if channel_id else "DMs"
@@ -1192,7 +1092,7 @@ async def myfeeds(interaction: discord.Interaction, action: str, url: str = ""):
 
     await interaction.response.send_message(embed=make_embed("Invalid Action", "Use: `/myfeeds add <url>`, `/myfeeds remove <url>`, or `/myfeeds list`"), ephemeral=True)
 
-# ---- Personal digest management with day choices + time autocomplete ----
+# ---- Digest management ----
 DAY_CHOICES = [
     app_commands.Choice(name="Mon", value="mon"),
     app_commands.Choice(name="Tue", value="tue"),
@@ -1203,20 +1103,17 @@ DAY_CHOICES = [
     app_commands.Choice(name="Sun", value="sun"),
 ]
 
-@tree.command(name="setdigest", description="Set your digest: off|daily|weekly [HH:MM] [day] (uses current bot timezone).")
+@tree.command(name="setdigest", description="Set your digest: off|daily|weekly [HH:MM] [day].")
 @app_commands.describe(mode="off | daily | weekly", time_chi="HH:MM", day="Day of week (weekly only)")
 @app_commands.choices(day=DAY_CHOICES)
 async def setdigest(interaction: discord.Interaction, mode: str, time_chi: str = "", day: app_commands.Choice[str] = None):
     mode = (mode or "").lower()
     if mode not in ("off","daily","weekly"):
         return await interaction.response.send_message(embed=make_embed("Invalid", "Mode must be off, daily, or weekly."), ephemeral=True)
-
     if mode == "off":
         set_user_pref(interaction.user.id, "digest", "off")
-        await interaction.response.send_message(embed=make_embed("Digest Updated", "Digest disabled for you."), ephemeral=True)
-        return
+        return await interaction.response.send_message(embed=make_embed("Digest Updated", "Digest disabled for you."), ephemeral=True)
 
-    # validate time (current bot timezone)
     t = (time_chi or "09:00").strip()
     try:
         hh, mm = map(int, t.split(":"))
@@ -1241,16 +1138,15 @@ async def setdigest_time_autocomplete(interaction: discord.Interaction, current:
     suggestions = [t for t in pool if current in t][:25]
     return [app_commands.Choice(name=t, value=t) for t in suggestions]
 
-# ---- NEW: Per-user watched-user behavior ----
+# ---- Per-user watched-user behavior ----
 @tree.command(
     name="mywatchprefs",
-    description="Control how watched-user alerts interact with YOUR filters: "
-                "subs=true bypasses your subreddit list; flairs=true bypasses your flair list; keywords=true bypasses your keywords."
+    description="Set how watched-user alerts bypass your filters."
 )
 @app_commands.describe(
-    subs="true: deliver watched-user posts even if they aren't in your /mysubs list (default true).",
-    flairs="true: deliver watched-user posts regardless of your personal flair list (default true).",
-    keywords="true: deliver watched-user posts regardless of your personal keywords (default false)."
+    subs="Bypass your subreddit list.",
+    flairs="Bypass your flair list.",
+    keywords="Bypass your keywords."
 )
 async def mywatchprefs(interaction: discord.Interaction, subs: bool = True, flairs: bool = True, keywords: bool = False):
     set_user_pref(interaction.user.id, "watch_bypass_subs", subs)
@@ -1260,13 +1156,18 @@ async def mywatchprefs(interaction: discord.Interaction, subs: bool = True, flai
            f"- Subreddit filter bypass: **{subs}**\n"
            f"- Flair filter bypass: **{flairs}**\n"
            f"- Keyword filter bypass: **{keywords}**\n\n"
-           f"When a globally watched user (via /adduserwatch) posts, I'll apply these bypasses to your personal filters.")
+           f"These apply when a globally watched user posts.")
     await interaction.response.send_message(embed=make_embed("Watch Preferences Updated", msg), ephemeral=True)
 
 # ---------- Discord lifecycle ----------
 @client.event
 async def on_ready():
-    await tree.sync()
+    # Optional fast guild sync: set GUILD_ID in .env for instant registration
+    guild_id = os.environ.get("GUILD_ID")
+    if guild_id:
+        await tree.sync(guild=discord.Object(id=int(guild_id)))
+    else:
+        await tree.sync()
     print(f"Logged in as {client.user} (TZ={TZ_NAME})")
     client.loop.create_task(fetch_and_notify())
     client.loop.create_task(digest_scheduler())
