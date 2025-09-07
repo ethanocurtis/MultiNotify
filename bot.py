@@ -734,7 +734,7 @@ async def digest_scheduler():
                     else:
                         dest_user = await client.fetch_user(uid)
                 except Exception as e:
-                    print(f"[ERROR] Resolving destination for {uid}: {e})
+                    print(f"[ERROR] Resolving destination for {uid}: {e}")
                     continue
 
                 def format_line(it):
@@ -1018,7 +1018,7 @@ async def setmydms(interaction: discord.Interaction, value: bool):
     set_user_pref(interaction.user.id, "enable_dm", value)
     await interaction.response.send_message(embed=make_embed("Updated", f"DMs {'enabled' if value else 'disabled'} for you"), ephemeral=True)
 
-@tree.command(name="setmykeywords", description="Set your personal keywords. Example: reddit:docker,proxmox rss:self-hosted")
+@tree.command(name="setmykeywords", description="Set personal keywords. Example: reddit:docker,proxmox rss:self-hosted")
 async def setmykeywords(interaction: discord.Interaction, reddit: str = "", rss: str = ""):
     changed = []
     if reddit is not None:
