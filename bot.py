@@ -1010,6 +1010,71 @@ async def help_cmd(interaction: discord.Interaction):
     await interaction.response.send_message(embed=make_embed("Help", f"**Commands:**\n{commands_text}"), ephemeral=True)
 
 # ---------- Personal commands ----------
+
+# ---- Personal subreddit management ----
+@tree.command(name="mysubs", description="Manage your personal subreddits: add/remove/list.")
+async def mysubs(interaction: discord.Interaction, action: str, name: str = ""):
+    """
+    Manage YOUR personal subreddit list. These are used for personal (per-user) Reddit delivery.
+    - list: show your current list
+    - add <subreddit>: add a subreddit (with or without r/)
+    - remove <subreddit>: remove it
+    """
+    action = (action or "").strip().lower()
+    sub = _norm_sub(name)
+
+    p = get_user_prefs(interaction.user.id)
+    subs = [_norm_sub(s) for s in p.get("subreddits", []) if _norm_sub(s)]
+
+    if action == "list":
+        if subs:
+            text = "\n".join([f"- r/{s}" for s in subs])
+        else:
+            text = "You have no personal subreddits. Use `/mysubs add <subreddit>`."
+        return await interaction.response.send_message(embed=make_embed("Your Subreddits", text), ephemeral=True)
+
+    if action == "add":
+        if not sub:
+            return await interaction.response.send_message(
+                embed=make_embed("Need Subreddit", "Usage: `/mysubs add <subreddit>` (with or without `r/`)"),
+                ephemeral=True
+            )
+        if sub not in subs:
+            subs.append(sub)
+            set_user_pref(interaction.user.id, "subreddits", subs)
+            return await interaction.response.send_message(
+                embed=make_embed("Subreddit Added", f"Now monitoring **r/{sub}** for your personal feed."),
+                ephemeral=True
+            )
+        else:
+            return await interaction.response.send_message(
+                embed=make_embed("No Change", f"**r/{sub}** is already in your list."),
+                ephemeral=True
+            )
+
+    if action == "remove":
+        if not sub:
+            return await interaction.response.send_message(
+                embed=make_embed("Need Subreddit", "Usage: `/mysubs remove <subreddit>`"),
+                ephemeral=True
+            )
+        if sub in subs:
+            subs.remove(sub)
+            set_user_pref(interaction.user.id, "subreddits", subs)
+            return await interaction.response.send_message(
+                embed=make_embed("Subreddit Removed", f"Stopped monitoring **r/{sub}** for your personal feed."),
+                ephemeral=True
+            )
+        else:
+            return await interaction.response.send_message(
+                embed=make_embed("Not Found", f"**r/{sub}** wasn't in your list."),
+                ephemeral=True
+            )
+
+    return await interaction.response.send_message(
+        embed=make_embed("Invalid Action", "Use: `/mysubs add <subreddit>`, `/mysubs remove <subreddit>`, or `/mysubs list`"),
+        ephemeral=True
+    )
 @tree.command(
     name="myprefs",
     description="Show your personal settings and watch-bypass prefs."
