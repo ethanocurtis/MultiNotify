@@ -290,6 +290,8 @@ Check `.env.example` for new options and add them if needed. For v1.6:
 For issues, questions, or suggestions, open an issue or ping me:  
 [![Discord](https://img.shields.io/badge/Message%20me%20on%20Discord-ethanocurtis-5865F2?logo=discord&logoColor=white)](https://discordapp.com/users/167485961477947392)
 
+you may also join the official MultiNotify Discord for direct support it installation help. https://discord.gg/SYCZ8HUTje
+
 ---
 
 ## License
