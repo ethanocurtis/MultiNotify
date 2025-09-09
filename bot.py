@@ -68,6 +68,7 @@ DISCORD_CHANNEL_IDS = [c.strip() for c in os.environ.get("DISCORD_CHANNEL_IDS", 
 WATCH_USERS = [u.strip().lstrip("u/") for u in os.environ.get("WATCH_USERS", "").split(",") if u.strip()]
 
 DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN")
+HEADLESS = not (DISCORD_TOKEN and DISCORD_TOKEN.strip())
 
 # ---------- Clients ----------
 reddit = praw.Reddit(
@@ -369,6 +370,9 @@ async def send_webhook_embed(title, url, description, color, source_type):
             print(f"[ERROR] Failed to send non-Discord webhook: {e}")
 
 async def notify_channels(title, url, description, color, source_type):
+    # Headless: skip Discord channel sends
+    if HEADLESS:
+        return
     if not DISCORD_CHANNEL_IDS:
         return
     embed = build_source_embed(title, url, description, color, source_type)
@@ -382,6 +386,9 @@ async def notify_channels(title, url, description, color, source_type):
             print(f"[ERROR] Failed to send to channel {cid}: {e}")
 
 async def notify_dms(message: str):
+    # Headless: skip Discord DMs
+    if HEADLESS:
+        return
     if not (ENABLE_DM and DISCORD_USER_IDS):
         return
     for uid in DISCORD_USER_IDS:
@@ -511,6 +518,7 @@ async def process_reddit():
                     mark_user_seen(uid, "reddit", post.id)
                     continue
 
+                # In headless mode, personal deliveries are skipped (notify_* no-op)
                 try:
                     embed = build_source_embed(
                         post.title,
@@ -701,6 +709,7 @@ async def process_rss():
                     mark_user_seen(uid, "rss", item["id"])
                     continue
 
+                # In headless mode, personal deliveries are skipped (notify_* no-op)
                 try:
                     embed = build_source_embed(title, link, description, color=discord.Color.blurple(), source_type="rss")
                     if p.get("preferred_channel_id"):
@@ -1075,6 +1084,7 @@ async def mysubs(interaction: discord.Interaction, action: str, name: str = ""):
         embed=make_embed("Invalid Action", "Use: `/mysubs add <subreddit>`, `/mysubs remove <subreddit>`, or `/mysubs list`"),
         ephemeral=True
     )
+
 @tree.command(
     name="myprefs",
     description="Show your personal settings and watch-bypass prefs."
@@ -1282,17 +1292,34 @@ async def mywatch(interaction: discord.Interaction, action: str, username: str =
         ephemeral=True
     )
 
-# ---------- Discord lifecycle ----------
-@client.event
-async def on_ready():
-    # Optional fast guild sync: set GUILD_ID in .env for instant registration
-    guild_id = os.environ.get("GUILD_ID")
-    if guild_id:
-        await tree.sync(guild=discord.Object(id=int(guild_id)))
-    else:
-        await tree.sync()
-    print(f"Logged in as {client.user} (TZ={TZ_NAME})")
-    client.loop.create_task(fetch_and_notify())
-    client.loop.create_task(digest_scheduler())
+# ---------- Headless loop (webhook-only) ----------
+async def headless_loop():
+    print("[INFO] Headless mode: webhook-only. Discord client not started.")
+    while True:
+        try:
+            await process_reddit()
+        except Exception as e:
+            print(f"[ERROR] Reddit fetch failed (headless): {e}")
+        try:
+            await process_rss()
+        except Exception as e:
+            print(f"[ERROR] RSS fetch failed (headless): {e}")
+        await asyncio.sleep(CHECK_INTERVAL)
 
-client.run(DISCORD_TOKEN)
+# ---------- Program entry ----------
+if not HEADLESS:
+    @client.event
+    async def on_ready():
+        # Optional fast guild sync: set GUILD_ID in .env for instant registration
+        guild_id = os.environ.get("GUILD_ID")
+        if guild_id:
+            await tree.sync(guild=discord.Object(id=int(guild_id)))
+        else:
+            await tree.sync()
+        print(f"Logged in as {client.user} (TZ={TZ_NAME})")
+        client.loop.create_task(fetch_and_notify())
+        client.loop.create_task(digest_scheduler())
+
+    client.run(DISCORD_TOKEN)
+else:
+    asyncio.run(headless_loop())
