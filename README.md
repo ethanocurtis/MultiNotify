@@ -258,6 +258,7 @@ services:
 ---
 
 ## Notes
+## Notes
 - Quiet hours and digest times use the bot’s **current timezone**. Default is **America/Chicago**; admins can change it with `/settimezone`.
 - If the global subreddit is cleared, global Reddit fetching is disabled until a new subreddit is set; personal subreddits continue to work.
 - RSS and Reddit each have **independent** keyword filters.
@@ -265,12 +266,14 @@ services:
 - `.env` changes made via commands persist across restarts.
 - Supports Discord webhooks, non-Discord webhooks, channel sends, and DMs.
 - The bot always loads your `.env` at startup.
+- **Headless mode**: If no `DISCORD_TOKEN` is set in `.env`, MultiNotify runs webhook-only (no Discord bot features).
 - **Watched users (v1.6):**
   - Fetches from **global** + **personal** watched lists.
   - Delivered only to users who watch that author (globally or personally).
   - Respect **quiet hours** and **digest**.
   - Per-user **bypass toggles** control subreddit/flair/keyword checks.
   - Global subreddit flairs/keywords **do not** restrict watched-user deliveries.
+
 
 ---
 
