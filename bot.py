@@ -1,3 +1,4 @@
+# bot.py
 import os
 import sys
 import praw
@@ -170,7 +171,8 @@ def _norm_sub(name: str) -> str:
 def get_user_prefs(uid: int):
     uid = str(uid)
     base = {
-        "enable_dm": ENABLE_DM,
+        # CHANGED: default personal DMs are OFF (no “surprise” DMs)
+        "enable_dm": False,
         "reddit_keywords": [],
         "rss_keywords": [],
         "quiet_hours": None,          # {"start":"22:00","end":"07:00"} (interpreted in TZ_NAME)
@@ -427,6 +429,10 @@ def union_personal_watch_users():
                 users.add(u)
     return users
 
+# ---------- Helpers for duplicate-guard ----------
+def is_user_in_global_dm(uid: int) -> bool:
+    return ENABLE_DM and (str(uid) in DISCORD_USER_IDS)
+
 # ---------- Reddit ----------
 async def process_reddit():
     union_subs = union_user_subreddits()
@@ -505,6 +511,15 @@ async def process_reddit():
                 if post.id in get_user_seen(uid, "reddit"):
                     continue
 
+                # DUPLICATE GUARD: if user's personal destination is DM,
+                # and this post is from the GLOBAL subreddit, and user is in global DM list -> skip personal DM
+                dest_channel_id = p.get("preferred_channel_id")
+                personal_dest_is_dm = (not dest_channel_id) and p.get("enable_dm")
+                if personal_dest_is_dm and SUBREDDIT and (sub_name_l == _norm_sub(SUBREDDIT)) and is_user_in_global_dm(uid):
+                    # still mark seen so it doesn't show up later as personal duplicate
+                    mark_user_seen(uid, "reddit", post.id)
+                    continue
+
                 if p.get("digest","off") != "off":
                     queue_digest_item(uid, {
                         "type": "reddit",
@@ -527,8 +542,8 @@ async def process_reddit():
                         color=discord.Color.orange(),
                         source_type="reddit"
                     )
-                    if p.get("preferred_channel_id"):
-                        ch = client.get_channel(int(p["preferred_channel_id"])) or await client.fetch_channel(int(p["preferred_channel_id"]))
+                    if dest_channel_id:
+                        ch = client.get_channel(int(dest_channel_id)) or await client.fetch_channel(int(dest_channel_id))
                         await ch.send(embed=embed)
                     elif p.get("enable_dm"):
                         user = await client.fetch_user(uid)
@@ -593,8 +608,9 @@ async def process_reddit():
                 try:
                     desc = f"Author: u/{author}\nSubreddit: r/{sub_name_l or 'unknown'}\nFlair: **{flair}**"
                     embed = build_source_embed(post.title, post_url, desc, color=discord.Color.orange(), source_type="reddit")
-                    if p.get("preferred_channel_id"):
-                        ch = client.get_channel(int(p["preferred_channel_id"])) or await client.fetch_channel(int(p["preferred_channel_id"]))
+                    dest_channel_id = p.get("preferred_channel_id")
+                    if dest_channel_id:
+                        ch = client.get_channel(int(dest_channel_id)) or await client.fetch_channel(int(dest_channel_id))
                         await ch.send(embed=embed)
                     elif p.get("enable_dm"):
                         user = await client.fetch_user(uid)
@@ -698,6 +714,15 @@ async def process_rss():
                 if item["id"] in get_user_seen(uid, "rss"):
                     continue
 
+                # DUPLICATE GUARD for RSS:
+                # If user's personal destination is DM, and this item comes from a GLOBAL RSS feed,
+                # and the user is in global DM list -> skip personal DM (avoid duplicate)
+                dest_channel_id = p.get("preferred_channel_id")
+                personal_dest_is_dm = (not dest_channel_id) and p.get("enable_dm")
+                if personal_dest_is_dm and (feed_url in RSS_FEEDS) and is_user_in_global_dm(uid):
+                    mark_user_seen(uid, "rss", item["id"])
+                    continue
+
                 if p.get("digest","off") != "off":
                     queue_digest_item(uid, {
                         "type": "rss",
@@ -712,8 +737,8 @@ async def process_rss():
                 # In headless mode, personal deliveries are skipped (notify_* no-op)
                 try:
                     embed = build_source_embed(title, link, description, color=discord.Color.blurple(), source_type="rss")
-                    if p.get("preferred_channel_id"):
-                        ch = client.get_channel(int(p["preferred_channel_id"])) or await client.fetch_channel(int(p["preferred_channel_id"]))
+                    if dest_channel_id:
+                        ch = client.get_channel(int(dest_channel_id)) or await client.fetch_channel(int(dest_channel_id))
                         await ch.send(embed=embed)
                     elif p.get("enable_dm"):
                         user = await client.fetch_user(uid)
@@ -931,6 +956,29 @@ async def reloadenv(interaction: discord.Interaction):
 async def whereenv(interaction: discord.Interaction):
     await interaction.response.send_message(embed=make_embed("Environment File", f"`{ENV_FILE}`"), ephemeral=True)
 
+# NEW: Manage global RSS feeds via command
+@tree.command(name="setrssfeeds", description="Set GLOBAL RSS feed URLs (comma-separated). Leave blank to clear.")
+async def setrssfeeds(interaction: discord.Interaction, feeds: str = ""):
+    if not is_admin(interaction):
+        return await interaction.response.send_message(
+            embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True
+        )
+    global RSS_FEEDS
+    if not feeds.strip():
+        RSS_FEEDS = []
+        update_env_var("RSS_FEEDS", "")
+        return await interaction.response.send_message(
+            embed=make_embed("RSS Feeds Cleared", "No global RSS feeds are configured."), ephemeral=True
+        )
+    # accept comma or whitespace separated
+    parts = re.split(r"[,\s]+", feeds.strip())
+    RSS_FEEDS = [u for u in (p.strip() for p in parts) if u]
+    update_env_var("RSS_FEEDS", ",".join(RSS_FEEDS))
+    lines = "\n".join(f"- {u}" for u in RSS_FEEDS) if RSS_FEEDS else "None"
+    await interaction.response.send_message(
+        embed=make_embed("RSS Feeds Updated", f"Now monitoring these GLOBAL feeds:\n{lines}"), ephemeral=True
+    )
+
 # ---------- Keyword commands (GLOBAL) ----------
 @tree.command(name="setredditkeywords", description="Set/clear GLOBAL Reddit keywords (comma separated).")
 async def setredditkeywords(interaction: discord.Interaction, words: str = ""):
@@ -1004,6 +1052,7 @@ async def help_cmd(interaction: discord.Interaction):
         "Admin:",
         "/setsubreddit, /setinterval, /setpostlimit",
         "/setwebhook, /setflairs, /setredditkeywords, /setrsskeywords, /setkeywords",
+        "/setrssfeeds",
         "/enabledms, /adddmuser, /removedmuser",
         "/adduserwatch, /removeuserwatch, /listuserwatches",
         "/settimezone, /status, /reloadenv, /whereenv",
