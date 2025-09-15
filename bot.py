@@ -905,6 +905,47 @@ async def removedmuser(interaction: discord.Interaction, user_id: str):
         update_env_var("DISCORD_USER_IDS", ",".join(DISCORD_USER_IDS))
     await interaction.response.send_message(embed=make_embed("DM User Removed", f"Removed user ID: {user_id}"), ephemeral=True)
 
+# NEW: Manage global channel fan-out via commands
+@tree.command(name="addchannel", description="(Admin) Add a Discord channel ID for global posts.")
+async def addchannel(interaction: discord.Interaction, channel_id: str):
+    if not is_admin(interaction):
+        return await interaction.response.send_message(
+            embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True
+        )
+    global DISCORD_CHANNEL_IDS
+    if channel_id not in DISCORD_CHANNEL_IDS:
+        DISCORD_CHANNEL_IDS.append(channel_id)
+        update_env_var("DISCORD_CHANNEL_IDS", ",".join(DISCORD_CHANNEL_IDS))
+    await interaction.response.send_message(
+        embed=make_embed("Channel Added", f"Now posting to channel ID: {channel_id}"), ephemeral=True
+    )
+
+@tree.command(name="removechannel", description="(Admin) Remove a Discord channel ID from global posts.")
+async def removechannel(interaction: discord.Interaction, channel_id: str):
+    if not is_admin(interaction):
+        return await interaction.response.send_message(
+            embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True
+        )
+    global DISCORD_CHANNEL_IDS
+    if channel_id in DISCORD_CHANNEL_IDS:
+        DISCORD_CHANNEL_IDS.remove(channel_id)
+        update_env_var("DISCORD_CHANNEL_IDS", ",".join(DISCORD_CHANNEL_IDS))
+    await interaction.response.send_message(
+        embed=make_embed("Channel Removed", f"Stopped posting to channel ID: {channel_id}"), ephemeral=True
+    )
+
+@tree.command(name="listchannels", description="(Admin) List all global channel IDs for posts.")
+async def listchannels(interaction: discord.Interaction):
+    if not is_admin(interaction):
+        return await interaction.response.send_message(
+            embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True
+        )
+    global DISCORD_CHANNEL_IDS
+    text = "\n".join([f"- {cid}" for cid in DISCORD_CHANNEL_IDS]) if DISCORD_CHANNEL_IDS else "None"
+    await interaction.response.send_message(
+        embed=make_embed("Global Channels", text), ephemeral=True
+    )
+
 @tree.command(name="settimezone", description="Set the bot's DEFAULT timezone (IANA name).")
 async def settimezone(interaction: discord.Interaction, tz: str):
     if not is_admin(interaction):
@@ -1054,6 +1095,7 @@ async def help_cmd(interaction: discord.Interaction):
         "/setwebhook, /setflairs, /setredditkeywords, /setrsskeywords, /setkeywords",
         "/setrssfeeds",
         "/enabledms, /adddmuser, /removedmuser",
+        "/addchannel, /removechannel, /listchannels",
         "/adduserwatch, /removeuserwatch, /listuserwatches",
         "/settimezone, /status, /reloadenv, /whereenv",
         "",
@@ -1068,16 +1110,8 @@ async def help_cmd(interaction: discord.Interaction):
     await interaction.response.send_message(embed=make_embed("Help", f"**Commands:**\n{commands_text}"), ephemeral=True)
 
 # ---------- Personal commands ----------
-
-# ---- Personal subreddit management ----
 @tree.command(name="mysubs", description="Manage your personal subreddits: add/remove/list.")
 async def mysubs(interaction: discord.Interaction, action: str, name: str = ""):
-    """
-    Manage YOUR personal subreddit list. These are used for personal (per-user) Reddit delivery.
-    - list: show your current list
-    - add <subreddit>: add a subreddit (with or without r/)
-    - remove <subreddit>: remove it
-    """
     action = (action or "").strip().lower()
     sub = _norm_sub(name)
 
