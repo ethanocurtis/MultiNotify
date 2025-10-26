@@ -82,6 +82,11 @@ intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 
+# === Reconnect-safe guards (fix duplicate background tasks & resyncs) ===
+_BG_TASKS_STARTED = False           # ensure background loops start once per process
+_SYNCED_ALL = False                 # ensure tree.sync runs once (for the all-guild case)
+_SYNCED_GUILDS: set[str] = set()    # ensure per-guild sync runs once when GUILD_ID provided
+
 # ---------- Data dir & persistence ----------
 DATA_DIR = Path("/app/data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -357,7 +362,7 @@ def build_source_embed(title, url, description, color, source_type):
 async def send_webhook_embed(title, url, description, color, source_type):
     if not WEBHOOK_URL:
         return
-    if "discord.com" in WEBHOOK_URL:
+    if "discord.com" in WEBHOOK_URL or "discordapp.com" in WEBHOOK_URL:
         embed = build_source_embed(title, url, description, color, source_type)
         try:
             requests.post(WEBHOOK_URL, json={"embeds": [embed.to_dict()]}, timeout=10)
@@ -1393,15 +1398,32 @@ async def headless_loop():
 if not HEADLESS:
     @client.event
     async def on_ready():
-        # Optional fast guild sync: set GUILD_ID in .env for instant registration
+        global _BG_TASKS_STARTED, _SYNCED_ALL, _SYNCED_GUILDS
+
+        # ---- One-time command sync (idempotent across reconnects) ----
         guild_id = os.environ.get("GUILD_ID")
-        if guild_id:
-            await tree.sync(guild=discord.Object(id=int(guild_id)))
+        try:
+            if guild_id:
+                if guild_id not in _SYNCED_GUILDS:
+                    await tree.sync(guild=discord.Object(id=int(guild_id)))
+                    _SYNCED_GUILDS.add(guild_id)
+                    print(f"[SYNC] Commands synced for guild {guild_id}")
+            else:
+                if not _SYNCED_ALL:
+                    await tree.sync()
+                    _SYNCED_ALL = True
+                    print("[SYNC] Commands globally synced")
+        except Exception as e:
+            print(f"[WARN] Command sync failed (continuing): {e}")
+
+        # ---- Start background tasks only once per process ----
+        if not _BG_TASKS_STARTED:
+            client.loop.create_task(fetch_and_notify())
+            client.loop.create_task(digest_scheduler())
+            _BG_TASKS_STARTED = True
+            print(f"[READY] Logged in as {client.user} (TZ={TZ_NAME}); background tasks started.")
         else:
-            await tree.sync()
-        print(f"Logged in as {client.user} (TZ={TZ_NAME})")
-        client.loop.create_task(fetch_and_notify())
-        client.loop.create_task(digest_scheduler())
+            print(f"[READY] {client.user} reconnected; background tasks already running (no duplicates started).")
 
     client.run(DISCORD_TOKEN)
 else:
