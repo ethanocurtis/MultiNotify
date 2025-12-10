@@ -90,14 +90,14 @@ If the global subreddit is cleared, global Reddit monitoring pauses. Personal su
 - **Personal commands** can be used by **any user**.
 
 ### Global (Admin) Commands
-- `/setsubreddit [name]` — Set/clear the global subreddit to monitor.
+- `/setsubreddit [name]` — Set/clear the global subreddit to monitor.(excluding brackets)
 - `/setinterval <seconds>` — Polling interval for new items.
 - `/setpostlimit <number>` — How many Reddit posts to fetch each cycle.
-- `/setflairs [flair1, flair2,...]` — Global Reddit flair filter (**case-sensitive**). Blank clears (allow all).
-- `/setredditkeywords [kw1, kw2,...]` — Global Reddit keywords. Blank clears (allow all).
-- `/setrsskeywords [kw1, kw2,...]` — Global RSS keywords. Blank clears (allow all).
-- `/setkeywords [kw1, kw2,...]` — **Legacy:** set the same keywords for both Reddit and RSS.
-- `/setwebhook [url]` — Set/clear webhook. Discord webhooks get embeds; others get plain text.
+- `/setflairs [flair1, flair2,...]` — Global Reddit flair filter (**case-sensitive**). Blank clears (allow all).(excluding brackets)
+- `/setredditkeywords [kw1, kw2,...]` — Global Reddit keywords. Blank clears (allow all).(excluding brackets)
+- `/setrsskeywords [kw1, kw2,...]` — Global RSS keywords. Blank clears (allow all).(excluding brackets)
+- `/setkeywords [kw1, kw2,...]` — **Legacy:** set the same keywords for both Reddit and RSS.(excluding brackets)
+- `/setwebhook [url]` — Set/clear webhook. Discord webhooks get embeds; others get plain text.(excluding brackets)
 - `/enabledms <true/false>` — Enable/disable global DM notifications.
 - `/adddmuser <user_id>` / `/removedmuser <user_id>` — Manage global DM recipients.
 - `/addrss <url>` / `/removerss <url>` / `/listrss` — Manage global RSS feeds.
@@ -116,10 +116,10 @@ If the global subreddit is cleared, global Reddit monitoring pauses. Personal su
 - `/myprefs` — Show your personal settings.
 - `/setmydms <true/false>` — Enable or disable **your** DMs.
 - `/setmykeywords reddit:<csv> rss:<csv>` — Set **your** Reddit/RSS keywords. Blank to clear.
-- `/setmyflairs [flair1, flair2,...]` — Set **your** Reddit flairs. Blank to allow all.
+- `/setmyflairs [flair1, flair2,...]` — Set **your** Reddit flairs. Blank to allow all.(excluding brackets)
 - `/mysubs add <subreddit> | remove <subreddit> | list` — Manage **your** subreddits.
 - `/myfeeds add <url> | remove <url> | list` — Manage **your** RSS/Atom feeds.
-- `/setchannel [channel_id]` — Send **your** personal notifications to this channel instead of DMs (blank to revert to DMs).
+- `/setchannel [channel_id]` — Send **your** personal notifications to this channel instead of DMs (blank to revert to DMs).(excluding brackets)
 - `/setdigest mode:<off|daily|weekly> [time_chi:HH:MM] [day:mon..sun]` —  
   Set your digest:
   - `mode` chooses off/daily/weekly.
