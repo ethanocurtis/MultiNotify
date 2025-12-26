@@ -270,6 +270,32 @@ RSS_ICON = "https://upload.wikimedia.org/wikipedia/commons/thumb/4/43/Feed-icon.
 PREFS_PATH = DATA_DIR / "user_prefs.json"  # { "1234567890": { ... }, ... }
 user_prefs = _load_json(PREFS_PATH, {})
 
+# ---------- Global keyword routes (admin-managed) ----------
+GLOBAL_ROUTES_PATH = DATA_DIR / "global_keyword_routes.json"
+global_keyword_routes = _load_json(GLOBAL_ROUTES_PATH, {"reddit": {}, "rss": {}})
+
+def _ensure_global_routes_shape(d):
+    if not isinstance(d, dict):
+        d = {"reddit": {}, "rss": {}}
+    d.setdefault("reddit", {})
+    d.setdefault("rss", {})
+    if not isinstance(d["reddit"], dict):
+        d["reddit"] = {}
+    if not isinstance(d["rss"], dict):
+        d["rss"] = {}
+    d["reddit"] = {str(k).strip().lower(): str(v).strip() for k, v in d["reddit"].items() if str(k).strip() and str(v).strip()}
+    d["rss"] = {str(k).strip().lower(): str(v).strip() for k, v in d["rss"].items() if str(k).strip() and str(v).strip()}
+    return d
+
+global_keyword_routes = _ensure_global_routes_shape(global_keyword_routes)
+
+def save_global_routes():
+    try:
+        GLOBAL_ROUTES_PATH.write_text(json.dumps(global_keyword_routes, indent=2), encoding="utf-8")
+    except Exception as e:
+        print(f"[ERROR] Saving global routes: {e}")
+
+
 def save_prefs():
     try:
         PREFS_PATH.write_text(json.dumps(user_prefs, indent=2), encoding="utf-8")
@@ -472,6 +498,29 @@ def domain_from_url(link: str) -> str:
     except Exception:
         return "unknown"
 
+
+def _sanitize_channel_id(raw: str) -> str:
+    """Extract numeric *channel* ID from user input.
+
+    Accepts:
+      - 123456789012345678
+      - <#123456789012345678>
+      - https://discord.com/channels/<guild_id>/<channel_id>
+      - https://discord.com/channels/<guild_id>/<channel_id>/<message_id>
+
+    Returns "" if none.
+    """
+    raw = (raw or "").strip()
+    ids = re.findall(r"(\d{15,25})", raw)
+    if not ids:
+        return ""
+    # If a link contains multiple IDs (guild/channel/message), channel id is the last-but-one
+    # when a message id is present; otherwise it's the last.
+    if "discord.com/channels" in raw and len(ids) >= 2:
+        # channels/<guild>/<channel>/[message]
+        return ids[1]
+    return ids[-1]
+
 def matches_keywords_text(text: str, keywords_list) -> bool:
     if not keywords_list:
         return True
@@ -527,6 +576,32 @@ async def notify_channels(title, url, description, color, source_type):
                 channel = await client.fetch_channel(int(cid))
             if GLOBAL_THREAD_MODE and isinstance(channel, discord.TextChannel):
                 # Thread key based on source type & host/subreddit
+                if source_type == "reddit":
+                    tkey = f"global:reddit:{domain_from_url(url)}"
+                    tname = "Reddit • Global"
+                else:
+                    tkey = f"global:rss:{domain_from_url(url)}"
+                    tname = "RSS • Global"
+                await _send_to_channel_threaded(channel, tkey, tname, embed)
+            else:
+                await channel.send(embed=embed)
+        except Exception as e:
+            print(f"[ERROR] Failed to send to channel {cid}: {e}")
+
+
+async def notify_channels_specific(channel_ids: list[str], title, url, description, color, source_type):
+    """Send global notifications to a specific subset of channels (used by global keyword routing)."""
+    if HEADLESS:
+        return
+    if not channel_ids:
+        return
+    embed = build_source_embed(title, url, description, color, source_type)
+    for cid in channel_ids:
+        try:
+            channel = client.get_channel(int(cid))
+            if channel is None:
+                channel = await client.fetch_channel(int(cid))
+            if GLOBAL_THREAD_MODE and isinstance(channel, discord.TextChannel):
                 if source_type == "reddit":
                     tkey = f"global:reddit:{domain_from_url(url)}"
                     tname = "Reddit • Global"
@@ -604,7 +679,7 @@ def _route_channel_for_user(uid: int, source_type: str, title: str, body: str = 
     """
     Per-user per-keyword routing.
     - source_type: "reddit" or "rss"
-    - if user has keyword_routes[source_type][keyword] = channel_id,
+    - if user has keyword_routes[source_type][keyword] = cid,
       and that keyword matches title/body -> return channel_id.
     """
     p = get_user_prefs(uid)
@@ -626,6 +701,25 @@ def _route_channel_for_user(uid: int, source_type: str, title: str, body: str = 
         except Exception:
             continue
     return None
+
+def _route_channel_global(source_type: str, title: str, body: str = "") -> str | None:
+    """Admin-managed global keyword → channel routing."""
+    routes = global_keyword_routes.get(source_type, {}) if isinstance(global_keyword_routes, dict) else {}
+    if not isinstance(routes, dict) or not routes:
+        return None
+    haystack = f"{title}\n{body}".lower()
+    for kw, cid in routes.items():
+        kw_n = (kw or "").strip().lower()
+        if not kw_n:
+            continue
+        try:
+            if re.search(rf"\b{re.escape(kw_n)}\b", haystack):
+                cid = (cid or "").strip()
+                return cid if cid else None
+        except Exception:
+            continue
+    return None
+
 
 # ---------- Reddit ----------
 async def process_reddit():
@@ -670,7 +764,11 @@ async def process_reddit():
             post_url = f"https://reddit.com{post.permalink}"
             description = f"Subreddit: r/{_norm_sub(SUBREDDIT)}\nFlair: **{flair}**\nAuthor: u/{post.author}"
             await send_webhook_embed(post.title, post_url, description, color=discord.Color.orange(), source_type="reddit")
-            await notify_channels(post.title, post_url, description, color=discord.Color.orange(), source_type="reddit")
+            routed_channel_id = _route_channel_global("reddit", post.title, getattr(post, "selftext", "") or "")
+            if routed_channel_id:
+                await notify_channels_specific([routed_channel_id], post.title, post_url, description, color=discord.Color.orange(), source_type="reddit")
+            else:
+                await notify_channels(post.title, post_url, description, color=discord.Color.orange(), source_type="reddit")
             mark_global_seen("reddit", post.id)
             if ENABLE_DM and DISCORD_USER_IDS:
                 dm_text = f"[Reddit] r/{_norm_sub(SUBREDDIT)} • Flair: {flair} • u/{post.author}\n{post.title}\n{post_url}"
@@ -708,7 +806,8 @@ async def process_reddit():
 
                 # DUPLICATE GUARD: if user's personal destination is DM,
                 # and this post is from the GLOBAL subreddit, and user is in global DM list -> skip personal DM
-                personal_dest_is_dm = p.get("enable_dm")
+                dest_channel_id = p.get("preferred_channel_id")
+                personal_dest_is_dm = (not dest_channel_id) and p.get("enable_dm")
                 if personal_dest_is_dm and SUBREDDIT and (sub_name_l == _norm_sub(SUBREDDIT)) and is_user_in_global_dm(uid):
                     # still mark seen so it doesn't show up later as personal duplicate
                     mark_user_seen(uid, "reddit", post.id)
@@ -732,9 +831,7 @@ async def process_reddit():
                     embed = build_source_embed(
                         post.title,
                         post_url,
-                        f"Subreddit: r/{sub_name_l}
-Flair: **{flair}**
-Author: u/{post.author}",
+                        f"Subreddit: r/{sub_name_l}\nFlair: **{flair}**\nAuthor: u/{post.author}",
                         color=discord.Color.orange(),
                         source_type="reddit"
                     )
@@ -744,8 +841,6 @@ Author: u/{post.author}",
                         await user.send(embed=embed)
 
                     mark_user_seen(uid, "reddit", post.id)
-                except Exception as e:
-                    print(f"[ERROR] Personal delivery to {uid}: {e}")
                 except Exception as e:
                     print(f"[ERROR] Personal delivery to {uid}: {e}")
 
@@ -805,9 +900,7 @@ Author: u/{post.author}",
 
                 # DM-only mode: personal deliveries only go to DMs (if enabled)
                 try:
-                    desc = f"Author: u/{author}
-Subreddit: r/{sub_name_l or 'unknown'}
-Flair: **{flair}**"
+                    desc = f"Author: u/{author}\nSubreddit: r/{sub_name_l or 'unknown'}\nFlair: **{flair}**"
                     embed = build_source_embed(post.title, post_url, desc, color=discord.Color.orange(), source_type="reddit")
 
                     if p.get("enable_dm"):
@@ -815,8 +908,6 @@ Flair: **{flair}**"
                         await user.send(embed=embed)
 
                     mark_user_seen(uid, "reddit", post.id)
-                except Exception as e:
-                    print(f"[ERROR] Personal author-watch delivery to {uid}: {e}")
                 except Exception as e:
                     print(f"[ERROR] Personal author-watch delivery to {uid}: {e}")
 
@@ -879,7 +970,11 @@ async def process_rss():
             clean_summary = clean_summary[:497] + "..."
         description = f"Feed: **{feed_title}**\nSource: {domain_from_url(link)}\n\n{clean_summary}"
         await send_webhook_embed(title, link, description, color=discord.Color.blurple(), source_type="rss")
-        await notify_channels(title, link, description, color=discord.Color.blurple(), source_type="rss")
+        routed_channel_id = _route_channel_global("rss", title, summary)
+        if routed_channel_id:
+            await notify_channels_specific([routed_channel_id], title, link, description, color=discord.Color.blurple(), source_type="rss")
+        else:
+            await notify_channels(title, link, description, color=discord.Color.blurple(), source_type="rss")
         mark_global_seen("rss", item["id"])
         if ENABLE_DM and DISCORD_USER_IDS:
             dm_text = f"[RSS] {feed_title}\n{title}\n{link}"
@@ -918,7 +1013,8 @@ async def process_rss():
                 # DUPLICATE GUARD for RSS:
                 # If user's personal destination is DM, and this item comes from a GLOBAL RSS feed,
                 # and the user is in global DM list -> skip personal DM (avoid duplicate)
-                personal_dest_is_dm = p.get("enable_dm")
+                dest_channel_id = p.get("preferred_channel_id")
+                personal_dest_is_dm = (not dest_channel_id) and p.get("enable_dm")
                 if personal_dest_is_dm and (feed_url in RSS_FEEDS) and is_user_in_global_dm(uid):
                     mark_user_seen(uid, "rss", item["id"])
                     continue
@@ -943,8 +1039,6 @@ async def process_rss():
                         await user.send(embed=embed)
 
                     mark_user_seen(uid, "rss", item["id"])
-                except Exception as e:
-                    print(f"[ERROR] Personal RSS delivery to {uid}: {e}")
                 except Exception as e:
                     print(f"[ERROR] Personal RSS delivery to {uid}: {e}")
 
@@ -978,11 +1072,9 @@ async def digest_scheduler():
                     mark_digest_sent(uid)
                     continue
 
-                                # DM-only mode: digests only deliver to DMs (if enabled)
+                # DM-only mode: digests deliver only to DMs (if enabled)
                 if not p.get("enable_dm"):
-                    # No DM destination configured
                     continue
-
                 dest_user = None
                 try:
                     dest_user = await client.fetch_user(uid)
@@ -1008,9 +1100,7 @@ async def digest_scheduler():
                     title = f"{title} — Part {idx}/{len(chunks)}" if len(chunks) > 1 else title
                     embed = make_embed(title, desc, discord.Color.gold())
                     try:
-                        if dest_channel:
-                            await dest_channel.send(embed=embed)
-                        elif dest_user:
+                        if dest_user:
                             await dest_user.send(embed=embed)
                     except Exception as e:
                         print(f"[ERROR] Sending digest to {uid}: {e}")
@@ -1020,6 +1110,7 @@ async def digest_scheduler():
         await asyncio.sleep(60)
 
 # ---------- Auth ----------
+
 def is_admin(interaction: discord.Interaction):
     return str(interaction.user.id) in ADMIN_USER_IDS
 
@@ -1324,12 +1415,14 @@ async def help_cmd(interaction: discord.Interaction):
         "",
         "Personal:",
         "/myprefs, /setmydms, /setmykeywords, /setmyflairs",
-        "/setquiet, /quietoff",
+        "/setquiet, /quietoff, /setchannel",
         "/myfeeds add|remove|list, /mysubs add|remove|list",
         "/setdigest off|daily|weekly [HH:MM] [day]",
         "/mywatch add|remove|list",
         "/mywatchprefs subs:<bool> flairs:<bool> keywords:<bool>",
         "/setmythreadmode on|off|default",
+        "/setkeywordroute reddit|rss <keyword> <channel_id|blank>",
+        "/listkeywordroutes",
         "/why <url>",
         "/whyexpected <url>",
     ])
@@ -1407,17 +1500,11 @@ async def quietoff(interaction: discord.Interaction):
     set_user_pref(interaction.user.id, "quiet_hours", None)
     await interaction.response.send_message(embed=make_embed("Updated", "Quiet hours disabled."), ephemeral=True)
 
-@tree.command(name="setchannel", description="(Disabled) Personal notifications are DM-only.")
+@tree.command(name="setchannel", description="Send your notifications to a channel instead of DMs.")
 async def setchannel(interaction: discord.Interaction, channel_id: str = ""):
-    # DM-only mode: personal notifications never post into channels.
-    # Clear any previously saved preferred_channel_id to prevent legacy configs from being used.
+    # DM-only mode: personal channel routing is disabled
     set_user_pref(interaction.user.id, "preferred_channel_id", None)
-    await interaction.response.send_message(
-        embed=make_embed("DM-only Mode", "Personal notifications are DM-only. This command is disabled."),
-        ephemeral=True
-    )
-
-# ---- NEW: Personal thread mode ----
+    await interaction.response.send_message(embed=make_embed("Disabled", "Personal notifications are DM-only now. Use `/setmydms true` to receive personal notifications."), ephemeral=True)
 
 @tree.command(name="setmythreadmode", description="Set your thread mode: on|off|default (uses GLOBAL).")
 async def setmythreadmode(interaction: discord.Interaction, mode: str):
@@ -1431,25 +1518,90 @@ async def setmythreadmode(interaction: discord.Interaction, mode: str):
     await interaction.response.send_message(embed=make_embed("Updated", f"Thread mode set to **{mode}**."), ephemeral=True)
 
 # ---- NEW: Per-keyword routing ----
-@tree.command(name="setkeywordroute", description="(Disabled) Per-user keyword routing is disabled in DM-only mode.")
+@tree.command(name="setkeywordroute", description="Route matching items by keyword to a specific channel. (Per-user)")
 async def setkeywordroute(interaction: discord.Interaction, source: str, keyword: str, channel_id: str = ""):
-    # DM-only mode: personal notifications never post into channels, so routing is disabled.
-    # Clear any existing routes to prevent legacy configs from being used.
-    set_user_pref(interaction.user.id, "keyword_routes", {"reddit": {}, "rss": {}})
-    await interaction.response.send_message(
-        embed=make_embed("DM-only Mode", "Per-user keyword routing is disabled because personal notifications are DM-only."),
-        ephemeral=True
-    )
+    # DM-only mode: personal channel routing is disabled
+    set_user_pref(interaction.user.id, "preferred_channel_id", None)
+    p = get_user_prefs(interaction.user.id)
+    kr = p.get("keyword_routes")
+    if isinstance(kr, dict):
+        kr["reddit"] = {}
+        kr["rss"] = {}
+        set_user_pref(interaction.user.id, "keyword_routes", kr)
+    await interaction.response.send_message(embed=make_embed("Disabled", "Personal keyword routing is disabled in DM-only mode."), ephemeral=True)
 
-@tree.command(name="listkeywordroutes", description="(Disabled) Per-user keyword routing is disabled in DM-only mode.")
+@tree.command(name="listkeywordroutes", description="List your per-keyword routes.")
 async def listkeywordroutes(interaction: discord.Interaction):
-    await interaction.response.send_message(
-        embed=make_embed("DM-only Mode", "Per-user keyword routing is disabled because personal notifications are DM-only."),
-        ephemeral=True
-    )
+    # DM-only mode: personal channel routing is disabled
+    set_user_pref(interaction.user.id, "preferred_channel_id", None)
+    await interaction.response.send_message(embed=make_embed("Disabled", "Personal keyword routing is disabled in DM-only mode."), ephemeral=True)
+
+# ---------- Global keyword routing (admin) ----------
+@tree.command(name="setglobalkeywordroute", description="(Admin) Route GLOBAL items by keyword to a specific channel.")
+async def setglobalkeywordroute(interaction: discord.Interaction, source: str, keyword: str, channel_id: str):
+    if not is_admin(interaction):
+        return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True)
+
+    source = (source or "").strip().lower()
+    keyword = (keyword or "").strip().lower()
+    channel_id = (channel_id or "").strip()
+    cid = _sanitize_channel_id(channel_id)
+    if not cid:
+        return await interaction.response.send_message(embed=make_embed("Invalid Channel", "Provide a valid channel ID or mention like <#123>."), ephemeral=True)
+
+    if source not in ("reddit", "rss"):
+        return await interaction.response.send_message(embed=make_embed("Invalid", "source must be: reddit or rss"), ephemeral=True)
+    if not keyword:
+        return await interaction.response.send_message(embed=make_embed("Need Keyword", "Provide a keyword to route."), ephemeral=True)
+    if not channel_id:
+        return await interaction.response.send_message(embed=make_embed("Need Channel", "Provide a channel_id."), ephemeral=True)
+
+    global_keyword_routes[source][keyword] = cid
+    global_keyword_routes[source] = {str(k).strip().lower(): str(v).strip() for k, v in global_keyword_routes[source].items() if str(k).strip() and str(v).strip()}
+    save_global_routes()
+    await interaction.response.send_message(embed=make_embed("Global Route Set", f"GLOBAL {source}: `{keyword}` → `{channel_id}`"), ephemeral=True)
+
+@tree.command(name="delglobalkeywordroute", description="(Admin) Remove a GLOBAL keyword route.")
+async def delglobalkeywordroute(interaction: discord.Interaction, source: str, keyword: str):
+    if not is_admin(interaction):
+        return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True)
+
+    source = (source or "").strip().lower()
+    keyword = (keyword or "").strip().lower()
+    if source not in ("reddit", "rss"):
+        return await interaction.response.send_message(embed=make_embed("Invalid", "source must be: reddit or rss"), ephemeral=True)
+    if not keyword:
+        return await interaction.response.send_message(embed=make_embed("Need Keyword", "Provide a keyword to remove."), ephemeral=True)
+
+    if keyword in global_keyword_routes.get(source, {}):
+        del global_keyword_routes[source][keyword]
+        save_global_routes()
+        return await interaction.response.send_message(embed=make_embed("Global Route Removed", f"Removed GLOBAL {source} route for `{keyword}`."), ephemeral=True)
+
+    return await interaction.response.send_message(embed=make_embed("Not Found", f"No GLOBAL {source} route exists for `{keyword}`."), ephemeral=True)
+
+@tree.command(name="listglobalkeywordroutes", description="(Admin) List GLOBAL keyword routes.")
+async def listglobalkeywordroutes(interaction: discord.Interaction):
+    if not is_admin(interaction):
+        return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True)
+
+    r = global_keyword_routes.get("reddit", {}) if isinstance(global_keyword_routes.get("reddit", {}), dict) else {}
+    s = global_keyword_routes.get("rss", {}) if isinstance(global_keyword_routes.get("rss", {}), dict) else {}
+    lines = []
+    if r:
+        lines.append("**Reddit (GLOBAL):**")
+        for k, cid in r.items():
+            lines.append(f"- `{k}` → `{cid}`")
+    if s:
+        lines.append("\n**RSS (GLOBAL):**")
+        for k, cid in s.items():
+            lines.append(f"- `{k}` → `{cid}`")
+    if not lines:
+        lines = ["No GLOBAL routes set. Use `/setglobalkeywordroute reddit|rss <keyword> <channel_id>`."]
+    await interaction.response.send_message(embed=make_embed("Global Keyword Routes", "\n".join(lines)), ephemeral=True)
+
 
 # ---- Personal RSS feed management ----
-
 @tree.command(name="myfeeds", description="Manage your personal RSS feeds: add/remove/list.")
 async def myfeeds(interaction: discord.Interaction, action: str, url: str = ""):
     action = (action or "").strip().lower()
@@ -1739,11 +1891,18 @@ def _explain_reddit_for_user(uid: int, post) -> str:
     else:
         reasons.append("ℹ️ Not a watched-user post (evaluated via subreddit pipeline only)")
 
-    # Destination (DM-only)
-    if p.get("enable_dm"):
-        reasons.append("➡️ Destination: your DMs")
+    # Routing
+    routed = _route_channel_for_user(uid, "reddit", title, body)
+    if routed:
+        reasons.append(f"➡️ Keyword route: would send to channel `{routed}`")
     else:
-        blockers.append("❌ No destination: your personal DMs are off")
+        dest_channel_id = p.get("preferred_channel_id")
+        if dest_channel_id:
+            reasons.append(f"➡️ Destination: your preferred channel `{dest_channel_id}`")
+        elif p.get("enable_dm"):
+            reasons.append("➡️ Destination: your DMs")
+        else:
+            blockers.append("❌ No destination: your DMs are off and you have no preferred channel")
 
     # Thread mode
     tm = p.get("thread_mode", None)
@@ -1821,11 +1980,17 @@ def _explain_rss_for_user(uid: int, item: dict) -> str:
     else:
         reasons.append("✅ Digest mode: off (immediate delivery possible)")
 
-    # Destination (DM-only)
-    if p.get("enable_dm"):
-        reasons.append("➡️ Destination: your DMs")
+    routed = _route_channel_for_user(uid, "rss", title, summary)
+    if routed:
+        reasons.append(f"➡️ Keyword route: would send to channel `{routed}`")
     else:
-        blockers.append("❌ No destination: your personal DMs are off")
+        dest_channel_id = p.get("preferred_channel_id")
+        if dest_channel_id:
+            reasons.append(f"➡️ Destination: your preferred channel `{dest_channel_id}`")
+        elif p.get("enable_dm"):
+            reasons.append("➡️ Destination: your DMs")
+        else:
+            blockers.append("❌ No destination: your DMs are off and you have no preferred channel")
 
     tm = p.get("thread_mode", None)
     tm_eff = GLOBAL_THREAD_MODE if tm is None else bool(tm)
@@ -1952,12 +2117,19 @@ def _explain_reddit_for_user_expected(uid: int, post) -> str:
     else:
         reasons.append("ℹ️ Not a watched-user post (evaluated via subreddit pipeline only)")
 
-    # Destination (DM-only)
-    if p.get("enable_dm"):
-        reasons.append("➡️ Destination: your DMs")
+    # Routing / destination
+    routed = _route_channel_for_user(uid, "reddit", title, body)
+    if routed:
+        reasons.append(f"➡️ Keyword route: would send to channel `{routed}`")
     else:
-        blockers.append("❌ No destination: your personal DMs are off")
-        suggestions.append("Enable DMs with `/setmydms true`.")
+        dest_channel_id = p.get("preferred_channel_id")
+        if dest_channel_id:
+            reasons.append(f"➡️ Destination: your preferred channel `{dest_channel_id}`")
+        elif p.get("enable_dm"):
+            reasons.append("➡️ Destination: your DMs")
+        else:
+            blockers.append("❌ No destination: your DMs are off and you have no preferred channel")
+            suggestions.append("Enable DMs with `/setmydms true` or set a channel with `/setchannel <channel_id>`.")
 
     # Thread mode
     tm = p.get("thread_mode", None)
@@ -2028,12 +2200,18 @@ def _explain_rss_for_user_expected(uid: int, item: dict) -> str:
     else:
         reasons.append("✅ Digest mode: off (immediate delivery possible)")
 
-    # Destination (DM-only)
-    if p.get("enable_dm"):
-        reasons.append("➡️ Destination: your DMs")
+    routed = _route_channel_for_user(uid, "rss", title, summary)
+    if routed:
+        reasons.append(f"➡️ Keyword route: would send to channel `{routed}`")
     else:
-        blockers.append("❌ No destination: your personal DMs are off")
-        suggestions.append("Enable DMs with `/setmydms true`.")
+        dest_channel_id = p.get("preferred_channel_id")
+        if dest_channel_id:
+            reasons.append(f"➡️ Destination: your preferred channel `{dest_channel_id}`")
+        elif p.get("enable_dm"):
+            reasons.append("➡️ Destination: your DMs")
+        else:
+            blockers.append("❌ No destination: your DMs are off and you have no preferred channel")
+            suggestions.append("Enable DMs with `/setmydms true` or set a channel with `/setchannel <channel_id>`.")
 
     tm = p.get("thread_mode", None)
     tm_eff = GLOBAL_THREAD_MODE if tm is None else bool(tm)
@@ -2121,6 +2299,12 @@ def _explain_global_reddit(post) -> str:
     else:
         reasons.append("✅ Global keyword filter: ALL")
 
+    routed = _route_channel_global("reddit", title, body)
+    if routed:
+        outputs.insert(1, f"Global keyword route: ✅ `{routed}`")
+    else:
+        outputs.insert(1, "Global keyword route: none")
+
     ok = (len(blockers) == 0)
 
     outputs = []
@@ -2160,6 +2344,12 @@ def _explain_global_rss(item: dict) -> str:
             blockers.append("❌ Keyword mismatch (global RSS keywords)")
     else:
         reasons.append("✅ Global RSS keyword filter: ALL")
+
+    routed = _route_channel_global("rss", title, summary)
+    if routed:
+        outputs.insert(1, f"Global keyword route: ✅ `{routed}`")
+    else:
+        outputs.insert(1, "Global keyword route: none")
 
     ok = (len(blockers) == 0)
 
