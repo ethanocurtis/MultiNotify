@@ -1365,6 +1365,7 @@ async def help_cmd(interaction: discord.Interaction):
         "/adduserwatch, /removeuserwatch, /listuserwatches",
         "/settimezone, /status, /reloadenv, /whereenv",
         "/setthreadmode, /setthreadttl",
+        "/whyglobal <url>",
         "",
         "Personal:",
         "/myprefs, /setmydms, /setmykeywords, /setmyflairs",
@@ -1377,6 +1378,7 @@ async def help_cmd(interaction: discord.Interaction):
         "/setkeywordroute reddit|rss <keyword> <channel_id|blank>",
         "/listkeywordroutes",
         "/why <url>",
+        "/whyexpected <url>",
     ])
     await interaction.response.send_message(embed=make_embed("Help", f"**Commands:**\n{commands_text}"), ephemeral=True)
 
@@ -1951,6 +1953,359 @@ async def why(interaction: discord.Interaction, url: str):
         return await interaction.followup.send(embed=make_embed("Error", f"RSS lookup failed: {e}"), ephemeral=True)
 
     return await interaction.followup.send(embed=make_embed("Not Found", "I couldn't match that URL to a recent Reddit post or RSS item in your configured feeds."), ephemeral=True)
+
+
+# ---------- NEW: WHYEXPECTED (personal blockers-first) ----------
+def _explain_reddit_for_user_expected(uid: int, post) -> str:
+    """
+    Like _explain_reddit_for_user, but shows blockers + quick fixes first.
+    """
+    p = get_user_prefs(uid)
+    reasons = []
+    blockers = []
+    suggestions = []
+
+    sub_name = _norm_sub(getattr(getattr(post, "subreddit", None), "display_name", "") or "")
+    flair = getattr(post, "link_flair_text", None) or "No Flair"
+    author = (str(getattr(post, "author", "") or "unknown")).lstrip("u/")
+    title = getattr(post, "title", "") or ""
+    body = getattr(post, "selftext", "") or ""
+
+    # Determine if it's a watched-user hit
+    personal_watch = set([u.strip().lstrip("u/") for u in p.get("watched_users", []) if u.strip()])
+    is_globally_watched = author in set(WATCH_USERS)
+    is_personally_watched = author in personal_watch
+    is_watched = is_globally_watched or is_personally_watched
+
+    # Subreddit-based personal pipeline evaluation
+    user_subs = set([_norm_sub(s) for s in p.get("subreddits", []) if _norm_sub(s)])
+    in_personal_subs = (sub_name in user_subs) if user_subs else (SUBREDDIT and sub_name == _norm_sub(SUBREDDIT))
+
+    if in_personal_subs:
+        reasons.append(f"✅ Subreddit match: r/{sub_name}")
+    else:
+        blockers.append(f"❌ Subreddit mismatch (your /mysubs list doesn't include r/{sub_name})")
+        suggestions.append("Add it with `/mysubs add <subreddit>` or clear your /mysubs list to fall back to the global subreddit.")
+
+    # Flair
+    p_flairs = p.get("reddit_flairs", [])
+    if p_flairs:
+        if flair in p_flairs:
+            reasons.append(f"✅ Flair allowed: {flair}")
+        else:
+            blockers.append(f"❌ Flair blocked by your personal flairs (post flair: {flair})")
+            suggestions.append("Update with `/setmyflairs` or clear your flairs to allow all.")
+    else:
+        reasons.append("✅ Flair filter: ALL (no personal flair filter)")
+
+    # Keywords
+    p_keywords = p.get("reddit_keywords", [])
+    if p_keywords:
+        if matches_keywords_post(post, p_keywords):
+            kw_hit = _first_matching_keyword(f"{title} {body}", p_keywords)
+            reasons.append(f"✅ Keyword match: {kw_hit or '(matched)'}")
+        else:
+            blockers.append("❌ Keyword mismatch (your personal Reddit keywords did not match)")
+            suggestions.append("Adjust with `/setmykeywords reddit:<...>` or clear your Reddit keywords to allow all.")
+    else:
+        reasons.append("✅ Keyword filter: ALL (no personal Reddit keyword filter)")
+
+    # Quiet hours
+    if is_quiet_now(uid):
+        blockers.append("❌ Quiet hours: currently active (would not deliver immediately)")
+        suggestions.append("Disable with `/quietoff` or change with `/setquiet`.")
+    else:
+        reasons.append("✅ Quiet hours: not active")
+
+    # Digest
+    if p.get("digest", "off") != "off":
+        reasons.append(f"ℹ️ Digest mode is ON ({p.get('digest')}); delivery would queue into your digest (not immediate).")
+        suggestions.append("Turn off digest with `/setdigest off` if you want immediate delivery.")
+    else:
+        reasons.append("✅ Digest mode: off (immediate delivery possible)")
+
+    # Watched-user logic
+    if is_watched:
+        reasons.append(f"⭐ Watched user match: u/{author} ({'global' if is_globally_watched else 'personal'})")
+        if not p.get("watch_bypass_subs", True) and not in_personal_subs:
+            blockers.append("❌ Watched-user bypass subs is OFF and subreddit mismatch")
+            suggestions.append("Enable bypass subs via `/mywatchprefs subs:true` or add subreddit to /mysubs.")
+        if not p.get("watch_bypass_flairs", True) and p_flairs and flair not in p_flairs:
+            blockers.append("❌ Watched-user bypass flairs is OFF and flair mismatch")
+            suggestions.append("Enable bypass flairs via `/mywatchprefs flairs:true` or adjust `/setmyflairs`.")
+        if not p.get("watch_bypass_keywords", False) and p_keywords and not matches_keywords_post(post, p_keywords):
+            blockers.append("❌ Watched-user bypass keywords is OFF and keyword mismatch")
+            suggestions.append("Enable bypass keywords via `/mywatchprefs keywords:true` or adjust `/setmykeywords`.")
+    else:
+        reasons.append("ℹ️ Not a watched-user post (evaluated via subreddit pipeline only)")
+
+    # Routing / destination
+    routed = _route_channel_for_user(uid, "reddit", title, body)
+    if routed:
+        reasons.append(f"➡️ Keyword route: would send to channel `{routed}`")
+    else:
+        dest_channel_id = p.get("preferred_channel_id")
+        if dest_channel_id:
+            reasons.append(f"➡️ Destination: your preferred channel `{dest_channel_id}`")
+        elif p.get("enable_dm"):
+            reasons.append("➡️ Destination: your DMs")
+        else:
+            blockers.append("❌ No destination: your DMs are off and you have no preferred channel")
+            suggestions.append("Enable DMs with `/setmydms true` or set a channel with `/setchannel <channel_id>`.")
+
+    # Thread mode
+    tm = p.get("thread_mode", None)
+    tm_eff = GLOBAL_THREAD_MODE if tm is None else bool(tm)
+    reasons.append(f"🧵 Thread mode effective: {tm_eff} (personal: {tm}, global: {GLOBAL_THREAD_MODE})")
+
+    ok = (not blockers)
+
+    # Build output (blockers-first)
+    lines = [f"**Result:** {'✅ Would deliver' if ok else '❌ Would NOT deliver'}"]
+    if blockers:
+        lines.append("\n**Blockers (what stopped it):**")
+        lines.extend(blockers)
+    else:
+        lines.append("\n**No blockers found.**")
+
+    if suggestions:
+        lines.append("\n**What to change (quick fixes):**")
+        seen = set()
+        for s in suggestions:
+            if s not in seen:
+                lines.append(f"• {s}")
+                seen.add(s)
+
+    lines.append("\n**Matched / allowed checks:**")
+    lines.extend(reasons)
+    return "\n".join(lines)
+
+def _explain_rss_for_user_expected(uid: int, item: dict) -> str:
+    p = get_user_prefs(uid)
+    reasons = []
+    blockers = []
+    suggestions = []
+
+    feed_url = item.get("feed_url", "")
+    feed_title = item.get("feed_title", domain_from_url(feed_url))
+    title = item.get("title", "")
+    summary = item.get("summary", "") or ""
+    text_for_match = f"{title}\n{summary}"
+
+    user_feeds = [u.strip() for u in p.get("feeds", []) if u.strip()]
+    if user_feeds and feed_url in user_feeds:
+        reasons.append(f"✅ Feed match: {feed_title}")
+    else:
+        blockers.append("❌ Feed mismatch (that feed is not in your /myfeeds list)")
+        suggestions.append("Add it with `/myfeeds add <url>`.")
+
+    p_rss_kw = p.get("rss_keywords", [])
+    if p_rss_kw:
+        if matches_keywords_text(text_for_match, p_rss_kw):
+            kw_hit = _first_matching_keyword(text_for_match, p_rss_kw)
+            reasons.append(f"✅ Keyword match: {kw_hit or '(matched)'}")
+        else:
+            blockers.append("❌ Keyword mismatch (your personal RSS keywords did not match)")
+            suggestions.append("Adjust with `/setmykeywords rss:<...>` or clear your RSS keywords to allow all.")
+    else:
+        reasons.append("✅ Keyword filter: ALL (no personal RSS keyword filter)")
+
+    if is_quiet_now(uid):
+        blockers.append("❌ Quiet hours: currently active (would not deliver immediately)")
+        suggestions.append("Disable with `/quietoff` or change with `/setquiet`.")
+    else:
+        reasons.append("✅ Quiet hours: not active")
+
+    if p.get("digest", "off") != "off":
+        reasons.append(f"ℹ️ Digest mode is ON ({p.get('digest')}); delivery would queue into your digest (not immediate).")
+        suggestions.append("Turn off digest with `/setdigest off` if you want immediate delivery.")
+    else:
+        reasons.append("✅ Digest mode: off (immediate delivery possible)")
+
+    routed = _route_channel_for_user(uid, "rss", title, summary)
+    if routed:
+        reasons.append(f"➡️ Keyword route: would send to channel `{routed}`")
+    else:
+        dest_channel_id = p.get("preferred_channel_id")
+        if dest_channel_id:
+            reasons.append(f"➡️ Destination: your preferred channel `{dest_channel_id}`")
+        elif p.get("enable_dm"):
+            reasons.append("➡️ Destination: your DMs")
+        else:
+            blockers.append("❌ No destination: your DMs are off and you have no preferred channel")
+            suggestions.append("Enable DMs with `/setmydms true` or set a channel with `/setchannel <channel_id>`.")
+
+    tm = p.get("thread_mode", None)
+    tm_eff = GLOBAL_THREAD_MODE if tm is None else bool(tm)
+    reasons.append(f"🧵 Thread mode effective: {tm_eff} (personal: {tm}, global: {GLOBAL_THREAD_MODE})")
+
+    ok = (not blockers)
+
+    lines = [f"**Result:** {'✅ Would deliver' if ok else '❌ Would NOT deliver'}"]
+    if blockers:
+        lines.append("\n**Blockers (what stopped it):**")
+        lines.extend(blockers)
+    else:
+        lines.append("\n**No blockers found.**")
+
+    if suggestions:
+        lines.append("\n**What to change (quick fixes):**")
+        seen = set()
+        for s in suggestions:
+            if s not in seen:
+                lines.append(f"• {s}")
+                seen.add(s)
+
+    lines.append("\n**Matched / allowed checks:**")
+    lines.extend(reasons)
+    return "\n".join(lines)
+
+@tree.command(name="whyexpected", description="Like /why, but focuses on blockers + quick fixes first (personal settings only).")
+async def whyexpected(interaction: discord.Interaction, url: str):
+    url = (url or "").strip()
+    if not url:
+        return await interaction.response.send_message(embed=make_embed("Need URL", "Provide a Reddit or RSS item URL."), ephemeral=True)
+
+    await interaction.response.defer(ephemeral=True)
+
+    rid = _parse_reddit_id_from_url(url)
+    if rid:
+        try:
+            post = reddit.submission(id=rid)
+            _ = post.title
+            text = _explain_reddit_for_user_expected(interaction.user.id, post)
+            return await interaction.followup.send(embed=make_embed("WhyExpected (Reddit)", text), ephemeral=True)
+        except Exception as e:
+            return await interaction.followup.send(embed=make_embed("Error", f"Could not fetch Reddit submission: {e}"), ephemeral=True)
+
+    try:
+        item = await _find_rss_item_by_link(url)
+        if item:
+            text = _explain_rss_for_user_expected(interaction.user.id, item)
+            return await interaction.followup.send(embed=make_embed("WhyExpected (RSS)", text), ephemeral=True)
+    except Exception as e:
+        return await interaction.followup.send(embed=make_embed("Error", f"RSS lookup failed: {e}"), ephemeral=True)
+
+    return await interaction.followup.send(embed=make_embed("Not Found", "I couldn't match that URL to a recent Reddit post or RSS item in your configured feeds."), ephemeral=True)
+
+# ---------- NEW: WHYGLOBAL (admin-only) ----------
+def _explain_global_reddit(post) -> str:
+    reasons = []
+    blockers = []
+
+    sub_name = _norm_sub(getattr(getattr(post, "subreddit", None), "display_name", "") or "")
+    flair = getattr(post, "link_flair_text", None) or "No Flair"
+    title = getattr(post, "title", "") or ""
+    body = getattr(post, "selftext", "") or ""
+    author = (str(getattr(post, "author", "") or "unknown")).lstrip("u/")
+
+    if SUBREDDIT and sub_name == _norm_sub(SUBREDDIT):
+        reasons.append(f"✅ Subreddit match: r/{sub_name}")
+    else:
+        blockers.append(f"❌ Not in global subreddit (global is r/{_norm_sub(SUBREDDIT) if SUBREDDIT else 'None'})")
+
+    if ALLOWED_FLAIRS:
+        if flair in ALLOWED_FLAIRS:
+            reasons.append(f"✅ Flair allowed (global): {flair}")
+        else:
+            blockers.append(f"❌ Flair blocked (global). Post flair: {flair}")
+    else:
+        reasons.append("✅ Global flair filter: ALL")
+
+    if REDDIT_KEYWORDS:
+        if matches_keywords_text(f"{title}\n{body}", REDDIT_KEYWORDS):
+            kw_hit = _first_matching_keyword(f"{title} {body}", REDDIT_KEYWORDS)
+            reasons.append(f"✅ Keyword match (global): {kw_hit or '(matched)'}")
+        else:
+            blockers.append("❌ Keyword mismatch (global Reddit keywords)")
+    else:
+        reasons.append("✅ Global keyword filter: ALL")
+
+    ok = (len(blockers) == 0)
+
+    outputs = []
+    outputs.append(f"Webhook: {'✅ set' if WEBHOOK_URL else '❌ none'}")
+    outputs.append(f"Channels: {', '.join(DISCORD_CHANNEL_IDS) if DISCORD_CHANNEL_IDS else 'none'}")
+    outputs.append(f"Global DM fanout: {'✅ on' if ENABLE_DM else '❌ off'} (users: {', '.join(DISCORD_USER_IDS) if DISCORD_USER_IDS else 'none'})")
+    outputs.append(f"Thread mode (global): {GLOBAL_THREAD_MODE}")
+
+    text = f"**Result:** {'✅ Would trigger GLOBAL delivery' if ok else '❌ Would NOT trigger GLOBAL delivery'}\n"
+    text += "\n".join(reasons)
+    if blockers:
+        text += "\n\n**Blockers:**\n" + "\n".join(blockers)
+    text += "\n\n**Outputs (if delivered):**\n" + "\n".join(f"• {o}" for o in outputs)
+    text += f"\n\nAuthor: u/{author}"
+    return text
+
+def _explain_global_rss(item: dict) -> str:
+    reasons = []
+    blockers = []
+
+    feed_url = item.get("feed_url", "")
+    feed_title = item.get("feed_title", domain_from_url(feed_url))
+    title = item.get("title", "")
+    summary = item.get("summary", "") or ""
+    text_for_match = f"{title}\n{summary}"
+
+    if feed_url in RSS_FEEDS:
+        reasons.append(f"✅ Feed is in GLOBAL RSS_FEEDS: {feed_title}")
+    else:
+        blockers.append("❌ Feed is not in GLOBAL RSS_FEEDS")
+
+    if RSS_KEYWORDS:
+        if matches_keywords_text(text_for_match, RSS_KEYWORDS):
+            kw_hit = _first_matching_keyword(text_for_match, RSS_KEYWORDS)
+            reasons.append(f"✅ Keyword match (global RSS): {kw_hit or '(matched)'}")
+        else:
+            blockers.append("❌ Keyword mismatch (global RSS keywords)")
+    else:
+        reasons.append("✅ Global RSS keyword filter: ALL")
+
+    ok = (len(blockers) == 0)
+
+    outputs = []
+    outputs.append(f"Webhook: {'✅ set' if WEBHOOK_URL else '❌ none'}")
+    outputs.append(f"Channels: {', '.join(DISCORD_CHANNEL_IDS) if DISCORD_CHANNEL_IDS else 'none'}")
+    outputs.append(f"Global DM fanout: {'✅ on' if ENABLE_DM else '❌ off'} (users: {', '.join(DISCORD_USER_IDS) if DISCORD_USER_IDS else 'none'})")
+    outputs.append(f"Thread mode (global): {GLOBAL_THREAD_MODE}")
+
+    text = f"**Result:** {'✅ Would trigger GLOBAL delivery' if ok else '❌ Would NOT trigger GLOBAL delivery'}\n"
+    text += "\n".join(reasons)
+    if blockers:
+        text += "\n\n**Blockers:**\n" + "\n".join(blockers)
+    text += "\n\n**Outputs (if delivered):**\n" + "\n".join(f"• {o}" for o in outputs)
+    return text
+
+@tree.command(name="whyglobal", description="(Admin) Explain why a URL would (or wouldn't) trigger the GLOBAL pipeline.")
+async def whyglobal(interaction: discord.Interaction, url: str):
+    if not is_admin(interaction):
+        return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True)
+
+    url = (url or "").strip()
+    if not url:
+        return await interaction.response.send_message(embed=make_embed("Need URL", "Provide a Reddit or RSS item URL."), ephemeral=True)
+
+    await interaction.response.defer(ephemeral=True)
+
+    rid = _parse_reddit_id_from_url(url)
+    if rid:
+        try:
+            post = reddit.submission(id=rid)
+            _ = post.title
+            text = _explain_global_reddit(post)
+            return await interaction.followup.send(embed=make_embed("WhyGlobal (Reddit)", text), ephemeral=True)
+        except Exception as e:
+            return await interaction.followup.send(embed=make_embed("Error", f"Could not fetch Reddit submission: {e}"), ephemeral=True)
+
+    try:
+        item = await _find_rss_item_by_link(url)
+        if item:
+            text = _explain_global_rss(item)
+            return await interaction.followup.send(embed=make_embed("WhyGlobal (RSS)", text), ephemeral=True)
+    except Exception as e:
+        return await interaction.followup.send(embed=make_embed("Error", f"RSS lookup failed: {e}"), ephemeral=True)
+
+    return await interaction.followup.send(embed=make_embed("Not Found", "I couldn't match that URL to a recent Reddit post or RSS item in known feeds."), ephemeral=True)
 
 # ---------- Headless loop (webhook-only) ----------
 async def headless_loop():
