@@ -154,7 +154,6 @@ If the global subreddit is cleared, global Reddit monitoring pauses. Personal su
   - `subs:true` (default) → deliver from any subreddit; `false` → only if in your `/mysubs`.
   - `flairs:true` (default) → ignore your `/setmyflairs`; `false` → must match your flairs.
   - `keywords:false` (default) → must match your `/setmykeywords`; `true` → ignore your keywords.
-- `/setmythreadmode on|off|default` — ~~Override global thread mode for your personal deliveries.~~(Currently has no use since th efollowing two are disabled)
 - `/setkeywordroute reddit|rss <keyword> <channel_id>` — ~~Route your personal notifications by keyword.~~(Currently Disabled to prevent spam)
 - `/listkeywordroutes` — ~~List your personal keyword routing rules.~~(Currently Disabled to prevent spam)
 - `/why <url>` — Explain why you did or didn’t receive a notification.
