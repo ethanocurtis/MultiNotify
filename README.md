@@ -98,6 +98,7 @@ If the global subreddit is cleared, global Reddit monitoring pauses. Personal su
 **Permissions note:**  
 - **Global commands** require the caller to be in `ADMIN_USER_IDS`.  
 - **Personal commands** can be used by **any user**.
+- **Do not include any brackets or less than/greaster than symbols in your commands**
 
 ### Global (Admin) Commands
 - `/setsubreddit [name]` — Set/clear the global subreddit to monitor.
