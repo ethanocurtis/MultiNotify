@@ -356,8 +356,6 @@ def get_user_prefs(uid: int):
         "watch_bypass_keywords": False,  # deliver regardless of personal keywords
         # personal watched Reddit users (no "u/")
         "watched_users": [],
-        # NEW: per-user thread mode override (None means use GLOBAL_THREAD_MODE)
-        "thread_mode": None,             # None|true|false
         # NEW: per-user keyword routing (channels by keyword)
         # {
         #   "reddit": {"docker":"123...", "proxmox":"456..."},
@@ -406,12 +404,6 @@ def is_quiet_now(uid: int):
     except Exception:
         return False
 
-def user_thread_mode_enabled(uid: int) -> bool:
-    p = get_user_prefs(uid)
-    v = p.get("thread_mode", None)
-    if v is None:
-        return GLOBAL_THREAD_MODE
-    return bool(v)
 
 # ---------- Digest helpers ----------
 DIGEST_QUEUE_PATH = DATA_DIR / "digests.json"     # { uid: [ {type, title, link, meta..., ts} ] }
@@ -1462,7 +1454,6 @@ async def help_cmd(interaction: discord.Interaction):
         "/setdigest off|daily|weekly [HH:MM] [day]",
         "/mywatch add|remove|list",
         "/mywatchprefs subs:<bool> flairs:<bool> keywords:<bool>",
-        "/setmythreadmode on|off|default",
         "/setkeywordroute reddit|rss <keyword> <channel_id|blank>",
         "/listkeywordroutes",
         "/why <url>",
@@ -1480,8 +1471,6 @@ async def myprefs(interaction: discord.Interaction):
     qh = p['quiet_hours']
     qh_str = f"{qh.get('start','?')}–{qh.get('end','?')}" if isinstance(qh, dict) else "off"
     personal_watch = ", ".join([f"u/{u}" for u in p.get("watched_users", [])]) or "None"
-    tm = p.get("thread_mode", None)
-    tm_str = "default" if tm is None else ("on" if tm else "off")
 
     kr = p.get("keyword_routes", {"reddit": {}, "rss": {}})
     r_routes = kr.get("reddit", {}) if isinstance(kr, dict) else {}
@@ -1548,16 +1537,6 @@ async def setchannel(interaction: discord.Interaction, channel_id: str = ""):
     set_user_pref(interaction.user.id, "preferred_channel_id", None)
     await interaction.response.send_message(embed=make_embed("Disabled", "Personal notifications are DM-only now. Use `/setmydms true` to receive personal notifications."), ephemeral=True)
 
-@tree.command(name="setmythreadmode", description="Set your thread mode: on|off|default (uses GLOBAL).")
-async def setmythreadmode(interaction: discord.Interaction, mode: str):
-    mode = (mode or "").strip().lower()
-    if mode not in ("on", "off", "default"):
-        return await interaction.response.send_message(embed=make_embed("Invalid", "Use: on, off, or default."), ephemeral=True)
-    if mode == "default":
-        set_user_pref(interaction.user.id, "thread_mode", None)
-        return await interaction.response.send_message(embed=make_embed("Updated", f"Thread mode set to **default** (GLOBAL is {GLOBAL_THREAD_MODE})."), ephemeral=True)
-    set_user_pref(interaction.user.id, "thread_mode", (mode == "on"))
-    await interaction.response.send_message(embed=make_embed("Updated", f"Thread mode set to **{mode}**."), ephemeral=True)
 
 # ---- NEW: Per-keyword routing ----
 @tree.command(name="setkeywordroute", description="Route matching items by keyword to a specific channel. (Per-user)")
@@ -1999,10 +1978,6 @@ def _explain_reddit_for_user(uid: int, post) -> str:
             blockers.append("❌ No destination: your DMs are off and you have no preferred channel")
 
     # Thread mode
-    tm = p.get("thread_mode", None)
-    tm_eff = GLOBAL_THREAD_MODE if tm is None else bool(tm)
-    reasons.append(f"🧵 Thread mode effective: {tm_eff} (personal: {tm}, global: {GLOBAL_THREAD_MODE})")
-
     # Final verdict
     ok = (not blockers)
     header = f"**Result:** {'✅ Would deliver' if ok else '❌ Would NOT deliver'}\n"
@@ -2085,11 +2060,6 @@ def _explain_rss_for_user(uid: int, item: dict) -> str:
             reasons.append("➡️ Destination: your DMs")
         else:
             blockers.append("❌ No destination: your DMs are off and you have no preferred channel")
-
-    tm = p.get("thread_mode", None)
-    tm_eff = GLOBAL_THREAD_MODE if tm is None else bool(tm)
-    reasons.append(f"🧵 Thread mode effective: {tm_eff} (personal: {tm}, global: {GLOBAL_THREAD_MODE})")
-
     ok = (not blockers)
     header = f"**Result:** {'✅ Would deliver' if ok else '❌ Would NOT deliver'}\n"
     detail = "\n".join(reasons + (["\n**Blockers:**"] + blockers if blockers else []))
@@ -2226,10 +2196,6 @@ def _explain_reddit_for_user_expected(uid: int, post) -> str:
             suggestions.append("Enable DMs with `/setmydms true` or set a channel with `/setchannel <channel_id>`.")
 
     # Thread mode
-    tm = p.get("thread_mode", None)
-    tm_eff = GLOBAL_THREAD_MODE if tm is None else bool(tm)
-    reasons.append(f"🧵 Thread mode effective: {tm_eff} (personal: {tm}, global: {GLOBAL_THREAD_MODE})")
-
     ok = (not blockers)
 
     # Build output (blockers-first)
@@ -2306,11 +2272,6 @@ def _explain_rss_for_user_expected(uid: int, item: dict) -> str:
         else:
             blockers.append("❌ No destination: your DMs are off and you have no preferred channel")
             suggestions.append("Enable DMs with `/setmydms true` or set a channel with `/setchannel <channel_id>`.")
-
-    tm = p.get("thread_mode", None)
-    tm_eff = GLOBAL_THREAD_MODE if tm is None else bool(tm)
-    reasons.append(f"🧵 Thread mode effective: {tm_eff} (personal: {tm}, global: {GLOBAL_THREAD_MODE})")
-
     ok = (not blockers)
 
     lines = [f"**Result:** {'✅ Would deliver' if ok else '❌ Would NOT deliver'}"]
