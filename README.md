@@ -38,7 +38,7 @@ Monitor subreddits **and** RSS/Atom feeds for new content (optionally filtered b
 - **Watched Reddit users**: Admin-managed global list **and** per-user personal lists.
 - **Watch bypass toggles** (per user) to ignore subreddit, flair, and/or keyword filters.
 - **Configurable timezone** via `/settimezone` (IANA timezones supported).
-- **Threaded posting** for Discord channels (global default with per-user override).
+- **Threaded posting** for Discord channels.
 - **Keyword-based routing** to specific Discord channels (global/admin only).
 - **Flair-based routing** for global Reddit posts.
 - **Diagnostic commands** to explain why content was delivered or skipped.
@@ -62,14 +62,13 @@ MultiNotify periodically checks the configured sources and delivers new content 
 
 3. **Routing & Delivery**
    - Global settings deliver to webhooks, global channels, and the global DM list.
-   - Personal settings deliver to the user’s preferred channel or DM.
+   - Personal settings deliver to the user’s DM only.
    - **Watched-user posts** are only delivered to users who:
      - personally watch that author **or**
      - are covered by the global watch list (admin)  
      …and then pass that user’s chosen bypass rules & quiet hours/digest.
   - Items may be routed to specific Discord channels based on:
      - **Global keyword routes**
-     - **Personal keyword routes**
      - **Global Reddit flair routes**
    - If no route matches, items follow the default delivery path.
    - Delivery targets may include Discord channels, threads, DMs, or webhooks.
@@ -111,7 +110,7 @@ If the global subreddit is cleared, global Reddit monitoring pauses. Personal su
 - `/setwebhook [url]` — Set/clear webhook. Discord webhooks get embeds; others get plain text.
 - `/enabledms <true/false>` — Enable/disable global DM notifications.
 - `/adddmuser <user_id>` / `/removedmuser <user_id>` — Manage global DM recipients.
-- `/addrss <url>` / `/removerss <url>` / `/listrss` — Manage global RSS feeds.
+- `/setrssfeeds` — Manage global RSS feeds.
 - `/addchannel <channel_id>` / `/removechannel <channel_id>` / `/listchannels` — Manage Discord channels for global sends.
 - `/adduserwatch <username>` — Add a Reddit author to the global watch list.
 - `/removeuserwatch <username>` — Remove from the global watch list.
@@ -126,6 +125,10 @@ If the global subreddit is cleared, global Reddit monitoring pauses. Personal su
 - `/help` — Show help (ephemeral).
 - `/reloadenv` — Reload `.env`.
 - `/whereenv` — Show the path to `.env`.
+- `/delglobalkeywordroute` — admin only, removes global keyword routes.
+- `/listglobalkeywordroutes` — admin only, lists global keyword routes
+- `/delglobalflairroute` — admin only, removes global flair routes.
+- `/listglobalflairroutes` — admin only, lists global flair routes.
 
 ### Personal (Any User) Commands
 - `/myprefs` — Show your personal settings.
@@ -152,8 +155,8 @@ If the global subreddit is cleared, global Reddit monitoring pauses. Personal su
   - `flairs:true` (default) → ignore your `/setmyflairs`; `false` → must match your flairs.
   - `keywords:false` (default) → must match your `/setmykeywords`; `true` → ignore your keywords.
 - `/setmythreadmode on|off|default` — Override global thread mode for your personal deliveries.
-- `/setkeywordroute reddit|rss <keyword> <channel_id>` — Route your personal notifications by keyword.
-- `/listkeywordroutes` — List your personal keyword routing rules.
+- `/setkeywordroute reddit|rss <keyword> <channel_id>` — ~~Route your personal notifications by keyword.~~(Currently Disabled to prevent spam)
+- `/listkeywordroutes` — ~~List your personal keyword routing rules.~~(Currently Disabled to prevent spam)
 - `/why <url>` — Explain why you did or didn’t receive a notification.
 - `/whyexpected <url>` — Show blockers first with suggested fixes.
 
@@ -291,10 +294,8 @@ services:
 - Supports Discord webhooks, non-Discord webhooks, channel sends, thread posting, and DMs.
 - The bot always loads your `.env` at startup for base configuration.
 - **Headless mode:** If no `DISCORD_TOKEN` is set in `.env`, MultiNotify runs webhook-only.
-  - Slash commands and all Discord-specific features (channels, threads, DMs) are disabled.
-  - **Flair-based and keyword-based routing require the bot to be run with a Discord token at least once**, as routing rules are created via slash commands.
-  - When running fully headless without ever running as a bot, routing rules cannot be created or modified.
-  - The following features **work in pure headless mode without ever running as a bot**:
+  - Slash commands and all Discord-specific features (channels, threads, DMs) are disabled
+  - The following features **work in headless mode without ever running as a bot**:
     - Reddit subreddit monitoring
     - RSS/Atom feed monitoring
     - Global keyword and flair filtering
