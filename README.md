@@ -1,6 +1,4 @@
-#Notice: The latest stable version should be obtained from the releases section until futher notice, the current version you get from cloning is a beta version and is not confirmed as stable. 
-
-# MultiNotify (v1.6)
+# MultiNotify (v1.67 Beta)
 
 ![Python](https://img.shields.io/badge/Python-3.8+-blue) ![Discord](https://img.shields.io/badge/Discord-Bot-brightgreen) ![Webhooks](https://img.shields.io/badge/Webhook-Supported-green) ![Mattermost](https://img.shields.io/badge/Mattermost-Compatible-orange) ![Slack](https://img.shields.io/badge/Slack-Compatible-lightgrey) ![DM Mode](https://img.shields.io/badge/DM-Mode%20Supported-purple) ![License: MIT](https://img.shields.io/badge/License-MIT-yellow)
 
