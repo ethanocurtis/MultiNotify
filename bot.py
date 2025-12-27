@@ -296,6 +296,33 @@ def save_global_routes():
         print(f"[ERROR] Saving global routes: {e}")
 
 
+
+# ---------- Global flair routes (admin-managed, Reddit only) ----------
+GLOBAL_FLAIR_ROUTES_PATH = DATA_DIR / "global_flair_routes.json"
+global_flair_routes = _load_json(GLOBAL_FLAIR_ROUTES_PATH, {})  # { "flair_text_lower": "channel_id" }
+
+def _ensure_global_flair_routes_shape(d):
+    if not isinstance(d, dict):
+        d = {}
+    # normalize keys/values
+    out = {}
+    for k, v in d.items():
+        kk = str(k).strip().lower()
+        vv = str(v).strip()
+        if kk and vv:
+            out[kk] = vv
+    return out
+
+global_flair_routes = _ensure_global_flair_routes_shape(global_flair_routes)
+
+def save_global_flair_routes():
+    try:
+        GLOBAL_FLAIR_ROUTES_PATH.write_text(json.dumps(global_flair_routes, indent=2), encoding="utf-8")
+    except Exception as e:
+        print(f"[ERROR] Saving global flair routes: {e}")
+
+
+
 def save_prefs():
     try:
         PREFS_PATH.write_text(json.dumps(user_prefs, indent=2), encoding="utf-8")
@@ -764,7 +791,8 @@ async def process_reddit():
             post_url = f"https://reddit.com{post.permalink}"
             description = f"Subreddit: r/{_norm_sub(SUBREDDIT)}\nFlair: **{flair}**\nAuthor: u/{post.author}"
             await send_webhook_embed(post.title, post_url, description, color=discord.Color.orange(), source_type="reddit")
-            routed_channel_id = _route_channel_global("reddit", post.title, getattr(post, "selftext", "") or "")
+            flair_routed_channel_id = _route_channel_global_flair(flair)
+            routed_channel_id = flair_routed_channel_id or _route_channel_global("reddit", post.title, getattr(post, "selftext", "") or "")
             if routed_channel_id:
                 await notify_channels_specific([routed_channel_id], post.title, post_url, description, color=discord.Color.orange(), source_type="reddit")
             else:
@@ -1110,6 +1138,20 @@ async def digest_scheduler():
         await asyncio.sleep(60)
 
 # ---------- Auth ----------
+
+
+def _route_channel_global_flair(flair_text: str) -> str | None:
+    """Admin-managed global flair → channel routing (Reddit only)."""
+    if not isinstance(global_flair_routes, dict) or not global_flair_routes:
+        return None
+    ft = (flair_text or "").strip().lower()
+    if not ft:
+        ft = "no flair"
+    cid = global_flair_routes.get(ft)
+    if cid:
+        cid = str(cid).strip()
+        return cid if cid else None
+    return None
 
 def is_admin(interaction: discord.Interaction):
     return str(interaction.user.id) in ADMIN_USER_IDS
@@ -1537,7 +1579,8 @@ async def listkeywordroutes(interaction: discord.Interaction):
     await interaction.response.send_message(embed=make_embed("Disabled", "Personal keyword routing is disabled in DM-only mode."), ephemeral=True)
 
 # ---------- Global keyword routing (admin) ----------
-@tree.command(name="setglobalkeywordroute", description="(Admin) Route GLOBAL items by keyword to a specific channel.")
+@tree.command(name="setglobalkeywordroute", description="(Admin) Route GLOBAL items by source (reddit/rss) + keyword to a specific channel.")
+@app_commands.choices(source=[app_commands.Choice(name="reddit (Reddit posts)", value="reddit"), app_commands.Choice(name="rss (RSS feed items)", value="rss")])
 async def setglobalkeywordroute(interaction: discord.Interaction, source: str, keyword: str, channel_id: str):
     if not is_admin(interaction):
         return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True)
@@ -1561,7 +1604,8 @@ async def setglobalkeywordroute(interaction: discord.Interaction, source: str, k
     save_global_routes()
     await interaction.response.send_message(embed=make_embed("Global Route Set", f"GLOBAL {source}: `{keyword}` → `{channel_id}`"), ephemeral=True)
 
-@tree.command(name="delglobalkeywordroute", description="(Admin) Remove a GLOBAL keyword route.")
+@tree.command(name="delglobalkeywordroute", description="(Admin) Remove a GLOBAL keyword route (pick source: reddit/rss).")
+@app_commands.choices(source=[app_commands.Choice(name="reddit (Reddit posts)", value="reddit"), app_commands.Choice(name="rss (RSS feed items)", value="rss")])
 async def delglobalkeywordroute(interaction: discord.Interaction, source: str, keyword: str):
     if not is_admin(interaction):
         return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True)
@@ -1635,6 +1679,56 @@ async def myfeeds(interaction: discord.Interaction, action: str, url: str = ""):
             return await interaction.response.send_message(embed=make_embed("Not Found", "That URL isn't in your list."), ephemeral=True)
 
     await interaction.response.send_message(embed=make_embed("Invalid Action", "Use: `/myfeeds add <url>`, `/myfeeds remove <url>`, or `/myfeeds list`"), ephemeral=True)
+# ---------- Global flair routing (admin, Reddit only) ----------
+@tree.command(name="setglobalflairroute", description="(Admin) Route GLOBAL Reddit posts by flair to a specific channel.")
+async def setglobalflairroute(interaction: discord.Interaction, flair: str, channel_id: str):
+    if not is_admin(interaction):
+        return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True)
+
+    flair = (flair or "").strip()
+    channel_id = (channel_id or "").strip()
+    cid = _sanitize_channel_id(channel_id)
+    if not cid:
+        return await interaction.response.send_message(embed=make_embed("Invalid Channel", "Provide a valid channel ID, mention (<#...>), or a channel link."), ephemeral=True)
+    if not flair:
+        return await interaction.response.send_message(embed=make_embed("Need Flair", "Provide a flair text to route (exact match, case-insensitive). Use 'No Flair' to match posts without a flair."), ephemeral=True)
+
+    key = flair.lower()
+    global_flair_routes[key] = cid
+    save_global_flair_routes()
+    return await interaction.response.send_message(embed=make_embed("Saved", f"GLOBAL flair route saved: **{flair}** → `{cid}`"), ephemeral=True)
+
+@tree.command(name="delglobalflairroute", description="(Admin) Remove a GLOBAL Reddit flair route.")
+async def delglobalflairroute(interaction: discord.Interaction, flair: str):
+    if not is_admin(interaction):
+        return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True)
+
+    flair = (flair or "").strip()
+    if not flair:
+        return await interaction.response.send_message(embed=make_embed("Need Flair", "Provide a flair text to remove."), ephemeral=True)
+
+    key = flair.lower()
+    if key in global_flair_routes:
+        del global_flair_routes[key]
+        save_global_flair_routes()
+        return await interaction.response.send_message(embed=make_embed("Removed", f"Removed GLOBAL flair route for **{flair}**."), ephemeral=True)
+    return await interaction.response.send_message(embed=make_embed("Not Found", f"No GLOBAL flair route exists for **{flair}**."), ephemeral=True)
+
+@tree.command(name="listglobalflairroutes", description="(Admin) List GLOBAL Reddit flair routes.")
+async def listglobalflairroutes(interaction: discord.Interaction):
+    if not is_admin(interaction):
+        return await interaction.response.send_message(embed=make_embed("Unauthorized", "You are not authorized."), ephemeral=True)
+
+    if not global_flair_routes:
+        return await interaction.response.send_message(embed=make_embed("Global Flair Routes", "No GLOBAL flair routes are set."), ephemeral=True)
+
+    lines = []
+    for k, v in global_flair_routes.items():
+        lines.append(f"• **{k}** → `{v}`")
+    msg = "\n".join(lines)
+    return await interaction.response.send_message(embed=make_embed("Global Flair Routes", msg), ephemeral=True)
+
+
 
 @tree.command(name="mysubs", description="Manage your personal subreddits: add/remove/list.")
 async def mysubs(interaction: discord.Interaction, action: str, name: str = ""):
@@ -2284,35 +2378,41 @@ def _explain_global_reddit(post) -> str:
 
     if ALLOWED_FLAIRS:
         if flair in ALLOWED_FLAIRS:
-            reasons.append(f"✅ Flair allowed (global): {flair}")
+            reasons.append(f"✅ Flair allowed (global filter): {flair}")
         else:
-            blockers.append(f"❌ Flair blocked (global). Post flair: {flair}")
+            blockers.append(f"❌ Flair blocked (global filter). Post flair: {flair}")
     else:
         reasons.append("✅ Global flair filter: ALL")
 
     if REDDIT_KEYWORDS:
         if matches_keywords_text(f"{title}\n{body}", REDDIT_KEYWORDS):
             kw_hit = _first_matching_keyword(f"{title} {body}", REDDIT_KEYWORDS)
-            reasons.append(f"✅ Keyword match (global): {kw_hit or '(matched)'}")
+            reasons.append(f"✅ Keyword match (global filter): {kw_hit or '(matched)'}")
         else:
             blockers.append("❌ Keyword mismatch (global Reddit keywords)")
     else:
         reasons.append("✅ Global keyword filter: ALL")
 
-    routed = _route_channel_global("reddit", title, body)
-    if routed:
-        outputs.insert(1, f"Global keyword route: ✅ `{routed}`")
-    else:
-        outputs.insert(1, "Global keyword route: none")
-
-    ok = (len(blockers) == 0)
+    # Routing preview (channel delivery)
+    flair_routed = _route_channel_global_flair(flair)
+    kw_routed = None if flair_routed else _route_channel_global("reddit", title, body)
 
     outputs = []
     outputs.append(f"Webhook: {'✅ set' if WEBHOOK_URL else '❌ none'}")
     outputs.append(f"Channels: {', '.join(DISCORD_CHANNEL_IDS) if DISCORD_CHANNEL_IDS else 'none'}")
     outputs.append(f"Global DM fanout: {'✅ on' if ENABLE_DM else '❌ off'} (users: {', '.join(DISCORD_USER_IDS) if DISCORD_USER_IDS else 'none'})")
-    outputs.append(f"Thread mode (global): {GLOBAL_THREAD_MODE}")
 
+    if flair_routed:
+        outputs.insert(1, f"Global flair route: ✅ `{flair_routed}` (overrides keyword routes)")
+    else:
+        outputs.insert(1, "Global flair route: none")
+
+    if kw_routed:
+        outputs.insert(2, f"Global keyword route: ✅ `{kw_routed}`")
+    else:
+        outputs.insert(2, "Global keyword route: none")
+
+    ok = (len(blockers) == 0)
     text = f"**Result:** {'✅ Would trigger GLOBAL delivery' if ok else '❌ Would NOT trigger GLOBAL delivery'}\n"
     text += "\n".join(reasons)
     if blockers:
@@ -2320,6 +2420,8 @@ def _explain_global_reddit(post) -> str:
     text += "\n\n**Outputs (if delivered):**\n" + "\n".join(f"• {o}" for o in outputs)
     text += f"\n\nAuthor: u/{author}"
     return text
+
+
 
 def _explain_global_rss(item: dict) -> str:
     reasons = []
@@ -2339,32 +2441,33 @@ def _explain_global_rss(item: dict) -> str:
     if RSS_KEYWORDS:
         if matches_keywords_text(text_for_match, RSS_KEYWORDS):
             kw_hit = _first_matching_keyword(text_for_match, RSS_KEYWORDS)
-            reasons.append(f"✅ Keyword match (global RSS): {kw_hit or '(matched)'}")
+            reasons.append(f"✅ Keyword match (global RSS filter): {kw_hit or '(matched)'}")
         else:
             blockers.append("❌ Keyword mismatch (global RSS keywords)")
     else:
         reasons.append("✅ Global RSS keyword filter: ALL")
 
     routed = _route_channel_global("rss", title, summary)
+
+    outputs = []
+    outputs.append(f"Webhook: {'✅ set' if WEBHOOK_URL else '❌ none'}")
+    outputs.append(f"Channels: {', '.join(DISCORD_CHANNEL_IDS) if DISCORD_CHANNEL_IDS else 'none'}")
+    outputs.append(f"Global DM fanout: {'✅ on' if ENABLE_DM else '❌ off'} (users: {', '.join(DISCORD_USER_IDS) if DISCORD_USER_IDS else 'none'})")
+
     if routed:
         outputs.insert(1, f"Global keyword route: ✅ `{routed}`")
     else:
         outputs.insert(1, "Global keyword route: none")
 
     ok = (len(blockers) == 0)
-
-    outputs = []
-    outputs.append(f"Webhook: {'✅ set' if WEBHOOK_URL else '❌ none'}")
-    outputs.append(f"Channels: {', '.join(DISCORD_CHANNEL_IDS) if DISCORD_CHANNEL_IDS else 'none'}")
-    outputs.append(f"Global DM fanout: {'✅ on' if ENABLE_DM else '❌ off'} (users: {', '.join(DISCORD_USER_IDS) if DISCORD_USER_IDS else 'none'})")
-    outputs.append(f"Thread mode (global): {GLOBAL_THREAD_MODE}")
-
     text = f"**Result:** {'✅ Would trigger GLOBAL delivery' if ok else '❌ Would NOT trigger GLOBAL delivery'}\n"
     text += "\n".join(reasons)
     if blockers:
         text += "\n\n**Blockers:**\n" + "\n".join(blockers)
     text += "\n\n**Outputs (if delivered):**\n" + "\n".join(f"• {o}" for o in outputs)
     return text
+
+
 
 @tree.command(name="whyglobal", description="(Admin) Explain why a URL would (or wouldn't) trigger the GLOBAL pipeline.")
 async def whyglobal(interaction: discord.Interaction, url: str):
