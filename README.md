@@ -39,7 +39,7 @@ Monitor subreddits **and** RSS/Atom feeds for new content (optionally filtered b
 - **Watch bypass toggles** (per user) to ignore subreddit, flair, and/or keyword filters.
 - **Configurable timezone** via `/settimezone` (IANA timezones supported).
 - **Threaded posting** for Discord channels (global default with per-user override).
-- **Keyword-based routing** to specific Discord channels (global and personal).
+- **Keyword-based routing** to specific Discord channels (global/admin only).
 - **Flair-based routing** for global Reddit posts.
 - **Diagnostic commands** to explain why content was delivered or skipped.
 - Fully containerized; easy to run with Docker/Compose.
