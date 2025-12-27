@@ -32,18 +32,22 @@ Monitor subreddits **and** RSS/Atom feeds for new content (optionally filtered b
 - Separate **keyword filtering** for Reddit and RSS (whole word, case-insensitive).
 - Filter Reddit posts by one or multiple **flairs** (case-sensitive), or watch all.
 - **Personal flair filtering** per user that can override global flair filters.
-- Deliver to **Discord webhooks** (embeds), **Discord channels** (embeds), **DMs** (embeds), and **non-Discord webhooks** (plain text).
-- Live configuration via **slash commands** with **.env auto-persist**.
+- Deliver to **Discord webhooks** (embeds), **Discord channels** (embeds), **Discord threads**, **DMs** (embeds), and **non-Discord webhooks** (plain text).
+- Live configuration via **slash commands** with **.env auto-persist** (automatically saved when running as a Discord bot).
 - **Quiet hours** (personal) and **per-user digests** (daily/weekly).
 - **Quarter-hour time suggestions** for digest time and **day dropdown** for weekly digests.
 - **Per-destination “seen” tracking** to prevent duplicate spam while allowing multiple users to follow the same sources independently.
+- **Watched Reddit users**: Admin-managed global list **and** per-user personal lists.
+- **Watch bypass toggles** (per user) to ignore subreddit, flair, and/or keyword filters.
+- **Configurable timezone** via `/settimezone` (IANA timezones supported).
+- **Threaded posting** for Discord channels (global default with per-user override).
+- **Keyword-based routing** to specific Discord channels (global and personal).
+- **Flair-based routing** for global Reddit posts.
+- **Diagnostic commands** to explain why content was delivered or skipped.
 - Fully containerized; easy to run with Docker/Compose.
-- **New in v1.6:**  
-  - **Watched Reddit users**: Admin-managed global list **and** per-user personal lists.  
-  - **Watch bypass toggles** (per user): decide if watched-user alerts ignore your subreddit, flair, and/or keyword filters.  
-  - **Configurable timezone**: default CST/CDT (**America/Chicago**) with `/settimezone` to switch to any IANA tz (e.g., `Europe/London`).
 
-> ⚙️ All modules (webhooks, channel sends, flair filtering, keyword filtering, DMs) can be enabled or disabled independently for both global and personal settings.
+> ⚙️ All modules (webhooks, channel sends, thread posting, flair filtering, keyword filtering, DMs) can be enabled or disabled independently for both global and personal settings.
+
 
 ## How It Works
 MultiNotify periodically checks the configured sources and delivers new content based on both global and personal settings:
@@ -58,13 +62,20 @@ MultiNotify periodically checks the configured sources and delivers new content 
    - Filters can be set globally or personally. **Personal flair filters override global flair filters for that user.**
    - **Watched-user alerts:** Per-user toggles decide whether to **bypass** subreddit, flair, and/or keyword filters.
 
-3. **Delivery**
+3. **Routing & Delivery**
    - Global settings deliver to webhooks, global channels, and the global DM list.
    - Personal settings deliver to the user’s preferred channel or DM.
    - **Watched-user posts** are only delivered to users who:
      - personally watch that author **or**
      - are covered by the global watch list (admin)  
      …and then pass that user’s chosen bypass rules & quiet hours/digest.
+  - Items may be routed to specific Discord channels based on:
+     - **Global keyword routes**
+     - **Personal keyword routes**
+     - **Global Reddit flair routes**
+   - If no route matches, items follow the default delivery path.
+   - Delivery targets may include Discord channels, threads, DMs, or webhooks.
+   - When thread mode is enabled, messages are posted into reusable threads instead of directly into channels.
 
 4. **Seen Handling**
    - **Global seen list:** Shared for global deliveries (webhooks/channels/global DMs).
@@ -78,38 +89,42 @@ MultiNotify periodically checks the configured sources and delivers new content 
 
 If the global subreddit is cleared, global Reddit monitoring pauses. Personal subreddits still work.
 
-**Watched users (v1.6):**
+**Watched users**
 - Admins can define a **global watched-users** list (e.g., high-signal posters).
 - Any user can define **their own personal watched-users** list.
 - A watched-user post is delivered to a user if the author is in **that user’s personal list** or in the **admin/global list**—then the user’s **watch bypass toggles** decide whether subreddit/flair/keyword filters are applied.
 
 ---
 
-## Slash Commands
+# Slash Commands
 
 **Permissions note:**  
 - **Global commands** require the caller to be in `ADMIN_USER_IDS`.  
 - **Personal commands** can be used by **any user**.
 
 ### Global (Admin) Commands
-- `/setsubreddit [name]` — Set/clear the global subreddit to monitor.(excluding brackets)
+- `/setsubreddit [name]` — Set/clear the global subreddit to monitor.
 - `/setinterval <seconds>` — Polling interval for new items.
 - `/setpostlimit <number>` — How many Reddit posts to fetch each cycle.
-- `/setflairs [flair1, flair2,...]` — Global Reddit flair filter (**case-sensitive**). Blank clears (allow all).(excluding brackets)
-- `/setredditkeywords [kw1, kw2,...]` — Global Reddit keywords. Blank clears (allow all).(excluding brackets)
-- `/setrsskeywords [kw1, kw2,...]` — Global RSS keywords. Blank clears (allow all).(excluding brackets)
-- `/setkeywords [kw1, kw2,...]` — **Legacy:** set the same keywords for both Reddit and RSS.(excluding brackets)
-- `/setwebhook [url]` — Set/clear webhook. Discord webhooks get embeds; others get plain text.(excluding brackets)
+- `/setflairs [flair1, flair2,...]` — Global Reddit flair filter (**case-sensitive**). Blank clears (allow all).
+- `/setredditkeywords [kw1, kw2,...]` — Global Reddit keywords. Blank clears (allow all).
+- `/setrsskeywords [kw1, kw2,...]` — Global RSS keywords. Blank clears (allow all).
+- `/setkeywords [kw1, kw2,...]` — **Legacy:** set the same keywords for both Reddit and RSS.
+- `/setwebhook [url]` — Set/clear webhook. Discord webhooks get embeds; others get plain text.
 - `/enabledms <true/false>` — Enable/disable global DM notifications.
 - `/adddmuser <user_id>` / `/removedmuser <user_id>` — Manage global DM recipients.
 - `/addrss <url>` / `/removerss <url>` / `/listrss` — Manage global RSS feeds.
 - `/addchannel <channel_id>` / `/removechannel <channel_id>` / `/listchannels` — Manage Discord channels for global sends.
-- **New (v1.6) – Watched users & timezone**
-  - `/adduserwatch <username>` — Add a Reddit author to the **global** watch list.
-  - `/removeuserwatch <username>` — Remove from the global watch list.
-  - `/listuserwatches` — List all globally watched users.
-  - `/settimezone <IANA_tz>` — Set the **default** timezone (e.g., `America/Chicago`, `Europe/London`).
+- `/adduserwatch <username>` — Add a Reddit author to the global watch list.
+- `/removeuserwatch <username>` — Remove from the global watch list.
+- `/listuserwatches` — List all globally watched users.
+- `/settimezone <IANA_tz>` — Set the default timezone (e.g., `America/Chicago`, `Europe/London`).
+- `/setthreadmode <true|false>` — Enable or disable thread mode globally.
+- `/setthreadttl <hours>` — How long inactive threads are kept before cleanup.
+- `/setglobalkeywordroute reddit|rss <keyword> <channel_id>` — Route global items by keyword.
+- `/setglobalflairroute <flair> <channel_id>` — Route global Reddit posts by flair.
 - `/status` — Show current configuration (ephemeral).
+- `/whyglobal <url>` — Explain global delivery behavior for a specific item.
 - `/help` — Show help (ephemeral).
 - `/reloadenv` — Reload `.env`.
 - `/whereenv` — Show the path to `.env`.
@@ -118,10 +133,10 @@ If the global subreddit is cleared, global Reddit monitoring pauses. Personal su
 - `/myprefs` — Show your personal settings.
 - `/setmydms <true/false>` — Enable or disable **your** DMs.
 - `/setmykeywords reddit:<csv> rss:<csv>` — Set **your** Reddit/RSS keywords. Blank to clear.
-- `/setmyflairs [flair1, flair2,...]` — Set **your** Reddit flairs. Blank to allow all.(excluding brackets)
+- `/setmyflairs [flair1, flair2,...]` — Set **your** Reddit flairs. Blank to allow all.
 - `/mysubs add <subreddit> | remove <subreddit> | list` — Manage **your** subreddits.
 - `/myfeeds add <url> | remove <url> | list` — Manage **your** RSS/Atom feeds.
-- `/setchannel [channel_id]` — Send **your** personal notifications to this channel instead of DMs (blank to revert to DMs).(excluding brackets)
+- `/setchannel [channel_id]` — **Deprecated:** command remains available but no longer changes delivery behavior to prevent spam attemps.
 - `/setdigest mode:<off|daily|weekly> [time_chi:HH:MM] [day:mon..sun]` —  
   Set your digest:
   - `mode` chooses off/daily/weekly.
@@ -130,15 +145,19 @@ If the global subreddit is cleared, global Reddit monitoring pauses. Personal su
   - Default time if omitted: **09:00**.
 - `/setquiet <start HH:MM> <end HH:MM>` — Set your quiet hours in the bot’s timezone (suppresses personal deliveries during that window).
 - `/quietoff` — Disable your quiet hours.
-- **New (v1.6) – Watched users**
-  - `/mywatch add <username>` — Add a **personal** watched user (no `u/` needed).
-  - `/mywatch remove <username>` — Remove from your personal watched list.
-  - `/mywatch list` — List your personal watched users.
-  - `/mywatchprefs subs:<true|false> flairs:<true|false> keywords:<true|false>` —  
-    Control how watched-user alerts are filtered for **you**:
-    - `subs:true` (default) → deliver from any subreddit; `false` → only if in your `/mysubs`.
-    - `flairs:true` (default) → ignore your `/setmyflairs`; `false` → must match your flairs.
-    - `keywords:false` (default) → must match your `/setmykeywords`; `true` → ignore your keywords.
+- `/mywatch add <username>` — Add a **personal** watched user (no `u/` needed).
+- `/mywatch remove <username>` — Remove from your personal watched list.
+- `/mywatch list` — List your personal watched users.
+- `/mywatchprefs subs:<true|false> flairs:<true|false> keywords:<true|false>` —  
+  Control how watched-user alerts are filtered for **you**:
+  - `subs:true` (default) → deliver from any subreddit; `false` → only if in your `/mysubs`.
+  - `flairs:true` (default) → ignore your `/setmyflairs`; `false` → must match your flairs.
+  - `keywords:false` (default) → must match your `/setmykeywords`; `true` → ignore your keywords.
+- `/setmythreadmode on|off|default` — Override global thread mode for your personal deliveries.
+- `/setkeywordroute reddit|rss <keyword> <channel_id>` — Route your personal notifications by keyword.
+- `/listkeywordroutes` — List your personal keyword routing rules.
+- `/why <url>` — Explain why you did or didn’t receive a notification.
+- `/whyexpected <url>` — Show blockers first with suggested fixes.
 
 ---
 
@@ -202,9 +221,14 @@ DISCORD_USER_IDS=123456789012345678
 DISCORD_CHANNEL_IDS=123456789012345678
 ADMIN_USER_IDS=123456789012345678
 
-# v1.6 additions (optional)
+# Optional settings
 TIMEZONE=America/Chicago         # default if omitted
 WATCH_USERS=someuser,anotherone  # global watched Reddit authors (no "u/")
+
+# v1.7 thread options (optional)
+THREAD_MODE=true                # enable thread posting globally
+THREAD_TTL_HOURS=24             # cleanup inactive threads after N hours
+
 ```
 
 ### 4. Enable Discord Bot DMs
@@ -265,16 +289,32 @@ services:
 - If the global subreddit is cleared, global Reddit fetching is disabled until a new subreddit is set; personal subreddits continue to work.
 - RSS and Reddit each have **independent** keyword filters.
 - Keyword matching is **exact whole word** and case-insensitive.
-- `.env` changes made via commands persist across restarts.
-- Supports Discord webhooks, non-Discord webhooks, channel sends, and DMs.
-- The bot always loads your `.env` at startup.
-- **Headless mode**: If no `DISCORD_TOKEN` is set in `.env`, MultiNotify runs webhook-only (no Discord bot features).
-- **Watched users (v1.6):**
+- `.env` changes made via slash commands persist across restarts when running as a Discord bot.
+- Supports Discord webhooks, non-Discord webhooks, channel sends, thread posting, and DMs.
+- The bot always loads your `.env` at startup for base configuration.
+- **Headless mode:** If no `DISCORD_TOKEN` is set in `.env`, MultiNotify runs webhook-only.
+  - Slash commands and all Discord-specific features (channels, threads, DMs) are disabled.
+  - **Flair-based and keyword-based routing require the bot to be run with a Discord token at least once**, as routing rules are created via slash commands.
+  - When running fully headless without ever running as a bot, routing rules cannot be created or modified.
+  - The following features **work in pure headless mode without ever running as a bot**:
+    - Reddit subreddit monitoring
+    - RSS/Atom feed monitoring
+    - Global keyword and flair filtering
+    - Watched Reddit users (global only, via `.env`)
+    - Webhook delivery (Discord and non-Discord)
+    - Seen-item tracking and duplicate prevention
+    - Persistent configuration loaded from the `data/` directory
+- **Thread mode:**
+  - When enabled, messages are posted into reusable Discord threads instead of directly into channels.
+  - Threads are automatically reused and cleaned up after a configurable TTL.
+  - Users may override global thread behavior.
+- **Watched users:**
   - Fetches from **global** + **personal** watched lists.
   - Delivered only to users who watch that author (globally or personally).
   - Respect **quiet hours** and **digest**.
   - Per-user **bypass toggles** control subreddit/flair/keyword checks.
   - Global subreddit flairs/keywords **do not** restrict watched-user deliveries.
+
 
 
 ---
