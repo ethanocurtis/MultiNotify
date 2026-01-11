@@ -4,7 +4,7 @@
 
 Monitor subreddits **and** RSS/Atom feeds for new content (optionally filtered by flair or separate keyword lists) and automatically send them to Discord, Mattermost, Slack, or other services via webhook or directly to specific Discord channels. Supports **Discord embeds, DM notifications, slash commands, automatic `.env` updates**, and is fully containerized for easy deployment.
 
-> ⏰ **Timezone:** All user-facing times (digests, quiet hours, timestamps shown in embeds) default to **America/Chicago**, and can be changed by an admin via `/settimezone`.
+> ⏰ **Timezone:** All user-facing times (digests, quiet hours, timestamps shown in embeds) default to **America/Chicago**, and can be changed by an admin via `/settimezone`. A full list of TZ names can be found [here.](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)
 
 ## Table of Contents
 - [Features](#features)
